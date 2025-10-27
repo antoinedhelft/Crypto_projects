@@ -1,0 +1,42 @@
+{
+  "title": "API & System (basic)",
+  "uid": "api-basic",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "API up",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "up{job=\"api\"}", "legendFormat": "api up"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API CPU (process_cpu_seconds_total rate)",
+      "gridPos": {"h": 8, "w": 12, "x": 8, "y": 0},
+      "targets": [
+        {"expr": "rate(process_cpu_seconds_total{job=\"api\"}[1m])", "legendFormat": "api cpu"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API RSS memory (bytes)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "targets": [
+        {"expr": "process_resident_memory_bytes{job=\"api\"}", "legendFormat": "api rss"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Containers CPU (cAdvisor)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "targets": [
+        {"expr": "sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total[5m]))", "legendFormat": "{{container_label_com_docker_compose_service}}"}
+      ]
+    }
+  ]
+}

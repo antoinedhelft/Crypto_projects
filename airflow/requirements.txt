@@ -1,0 +1,11 @@
+apache-airflow-providers-docker
+apache-airflow-providers-postgres
+python-binance
+pandas
+SQLAlchemy
+psycopg2-binary
+ta
+scikit-learn
+lightgbm
+joblib
+docker

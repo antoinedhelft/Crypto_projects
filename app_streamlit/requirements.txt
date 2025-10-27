@@ -1,0 +1,10 @@
+streamlit
+numpy
+joblib
+plotly
+scikit-learn
+lightgbm
+pandas>=2.2.2
+SQLAlchemy>=2.0.30
+psycopg2-binary>=2.9.9
+requests>=2.31.0

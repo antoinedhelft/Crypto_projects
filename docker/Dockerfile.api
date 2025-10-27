@@ -1,0 +1,26 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copie requirements et installer deps
+COPY api/requirements.txt /tmp/api_req.txt
+RUN pip install --no-cache-dir -r /tmp/api_req.txt
+
+# Copie seulement le code API (pas algo_crypto/)
+COPY api /app/api
+
+# Créé le répertoire pour les modèles (vide, sera monté)
+RUN mkdir -p /app/algo_crypto
+
+ENV PYTHONPATH=/app
+
+EXPOSE 8000
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

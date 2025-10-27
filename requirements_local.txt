@@ -1,0 +1,12 @@
+# Dépendances de dev/local: agrège les requirements des sous-projets
+
+-r api/requirements.txt
+-r scripts/data_pipeline/requirements.txt
+-r scripts/ml_pipeline/requirements.txt
+-r airflow/requirements.txt
+
+# Outils de tests et utilitaires
+pytest
+httpx
+python-dotenv
+streamlit
