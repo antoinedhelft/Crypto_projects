@@ -63,7 +63,7 @@ localhost:8501
 # Accéder à la base Postgres dans le conteneur:
 `docker exec -it pg_crypto psql -U crypto -d crypto_trading`
 
-ou utiliser l'extension vscode 'PostgreSQL' de Chris Kolkman
+ou utiliser l'extension vscode 'PostgreSQL' de Chris Kolkman (F5 pour run la query)
 
 
 ### Si vous aviez déjà lancé le projet :
