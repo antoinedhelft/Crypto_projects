@@ -8,7 +8,7 @@ from airflow.models import Variable
 from sqlalchemy import create_engine, text
 from docker.types import Mount
 
-NETWORK = "juil25-bde-crypto_default"
+NETWORK = "juil25-bde-crypto-main_default"
 
 
 def _db_url() -> str:

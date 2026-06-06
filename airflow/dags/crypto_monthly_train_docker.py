@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from airflow import DAG
@@ -6,7 +7,7 @@ from airflow.operators.python import ShortCircuitOperator, get_current_context
 from airflow.models import Variable
 from docker.types import Mount
 
-NETWORK = "juil25-bde-crypto_default"
+NETWORK = "juil25-bde-crypto-main_default"
 
 def _should_train() -> bool:
     """Décide si le job de training doit s'exécuter.
@@ -17,18 +18,14 @@ def _should_train() -> bool:
       (nous sommes le 1er du mois) OU (aucun modèle n'est présent dans MODELS_DIR)
     """
     ctx = get_current_context()
-
-   # 1) Si le DAG est déclenché manuellement, exécuter sans vérifications
     dag_run = ctx.get("dag_run")
-    try:
-        is_manual = bool(dag_run and getattr(dag_run, "external_trigger", True))
-    except Exception:
-        is_manual = True
-    if is_manual:
+
+    # 1) Run déclenché manuellement -> toujours exécuter
+    if dag_run and getattr(dag_run, "external_trigger", False):
         print("[gate] Run manuel détecté -> run")
         return True
 
-    # 2) Overrides explicites (Variable ou conf du run manuel)
+    # 2) Overrides explicites (Variable Airflow ou conf du run)
     force_var = Variable.get("FORCE_TRAIN", default_var="false").lower() == "true"
     
     force_conf = False
