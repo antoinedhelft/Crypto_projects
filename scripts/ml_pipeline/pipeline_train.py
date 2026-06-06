@@ -17,7 +17,7 @@ try:
     from scripts.ml_pipeline.feature_engineering import build_features
     from scripts.ml_pipeline.config import (
         MODEL_REG_PATH, MODEL_CLF_PATH,
-        FEATURES_REG_JSON, FEATURES_CLF_JSON, METRICS_JSON
+        FEATURES_REG_JSON, FEATURES_CLF_JSON, METRICS_JSON, SYMBOL_MAP_JSON
     )
     from scripts.ml_pipeline.models.regression import train_regressor
     from scripts.ml_pipeline.models.classification import train_classifier
@@ -44,7 +44,12 @@ def main():
             
         print("[DEBUG] Feature engineering...")
         sys.stdout.flush()
-        df_features = build_features(df_raw)
+        df_features, symbol_map = build_features(df_raw)
+        # Sauvegarder le symbol_map immediatement pour que l'API puisse l'utiliser
+        # meme si le training echoue apres cette etape
+        with open(str(SYMBOL_MAP_JSON), 'w') as f:
+            json.dump(symbol_map, f, indent=2)
+        print(f"[DEBUG] symbol_map sauvé: {symbol_map}")
         # Ordonner par symbole puis temps pour construire un split chrono par symbole
         idx_name = df_features.index.name or 'open_datetime'
         df_features = (
@@ -77,6 +82,40 @@ def main():
         sys.stdout.flush()
         clf_result = train_classifier(df_features, FEATURES_CLF_JSON, MODEL_CLF_PATH, train_mask=train_mask)
         
+        # Sauvegarde des métriques du run courant
+        metrics_new = {
+            "trained_at": datetime.datetime.now().isoformat(),
+            "regression": {
+                "mae_pct": reg_result["mae"],
+                "r2": reg_result["r2"],
+            },
+            "classification": {
+                "f1_macro": clf_result["report"]["macro avg"]["f1-score"],
+                "accuracy": clf_result["report"]["accuracy"],
+            },
+        }
+
+        # Comparaison avec les métriques précédentes si elles existent
+        previous_metrics_files = sorted(Path(METRICS_JSON).parent.glob("metrics_*.json"))
+        if previous_metrics_files:
+            latest = previous_metrics_files[-1]
+            with open(latest) as f:
+                metrics_prev = json.load(f)
+            prev_mae = metrics_prev.get("regression", {}).get("mae_pct")
+            prev_f1  = metrics_prev.get("classification", {}).get("f1_macro")
+            new_mae  = metrics_new["regression"]["mae_pct"]
+            new_f1   = metrics_new["classification"]["f1_macro"]
+            print(f"[METRICS] Régression MAE%  : {prev_mae:.4f} → {new_mae:.4f} "
+                  f"({'✓ amélioration' if new_mae < prev_mae else '✗ dégradation'})")
+            print(f"[METRICS] Classification F1: {prev_f1:.4f} → {new_f1:.4f} "
+                  f"({'✓ amélioration' if new_f1 > prev_f1 else '✗ dégradation'})")
+        else:
+            print("[METRICS] Premier entraînement — pas de comparaison possible.")
+
+        with open(str(METRICS_JSON), 'w') as f:
+            json.dump(metrics_new, f, indent=2)
+        print(f"[METRICS] Métriques sauvées dans {METRICS_JSON}")
+
         print("[DEBUG] Training terminé avec succès!")
         
     except Exception as e:

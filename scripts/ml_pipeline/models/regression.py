@@ -11,9 +11,11 @@ def train_regressor(df_features, features_path, model_path, train_mask=None):
     """
 
     # Caractéristiques (exclusion des colonnes de data leakage)
-    features_reg = [col for col in df_features.columns if col not in ['symbol', 'target_price', 'close_price']]
+    # target_pct est aussi exclue car c'est une transformation directe de target_price
+    features_reg = [col for col in df_features.columns if col not in ['symbol', 'target_price', 'target_pct', 'close_price']]
     X = df_features[features_reg]
-    y = df_features['target_price']
+    # Prédire la variation % plutôt que le prix absolu : scale-indépendant entre paires
+    y = df_features['target_pct']
 
     print(f"[DEBUG] Features ({len(features_reg)}): {features_reg}")
 
@@ -59,7 +61,7 @@ def train_regressor(df_features, features_path, model_path, train_mask=None):
     y_pred = best_reg_model.predict(X_test)
     mae = mean_absolute_error(y_test, y_pred)
     r2 = r2_score(y_test, y_pred)
-    print(f"Erreur absolue moyenne (MAE): {mae:.4f}")
+    print(f"Erreur absolue moyenne (MAE en %): {mae:.4f}")
     print(f"Coefficient de détermination (R2): {r2:.4f}")
 
     # Optionnel: refit sur toutes les données pour la sauvegarde

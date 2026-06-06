@@ -27,7 +27,9 @@ MODEL_REG_PATH = ALGO_DIR / f"crypto_regressor_lgbm_{timestamp}.joblib"
 MODEL_CLF_PATH = ALGO_DIR / f"crypto_classifier_lgbm_{timestamp}.joblib"
 FEATURES_REG_JSON = ALGO_DIR / f"regressor_features_{timestamp}.json"
 FEATURES_CLF_JSON = ALGO_DIR / f"classifier_features_{timestamp}.json"
-METRICS_JSON = ALGO_DIR / f"metrics_{timestamp}.json"  # <- AJOUTÉ
+METRICS_JSON = ALGO_DIR / f"metrics_{timestamp}.json"
+# Mapping symbol -> code entier, sauvegarde pour que l'inference utilise les memes codes
+SYMBOL_MAP_JSON = ALGO_DIR / f"symbol_map_{timestamp}.json"
 
 # Paths des modèles actuels (liens symboliques)
 MODEL_REG_CURRENT = ALGO_DIR / "crypto_regressor_lgbm.joblib"
