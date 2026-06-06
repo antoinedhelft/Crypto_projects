@@ -6,9 +6,10 @@ from pathlib import Path
 from functools import lru_cache
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from .feature_builder import latest_feature_row
+from .feature_builder import latest_feature_row, fetch_history
 from .settings import MODELS_DIR, DEFAULT_REG_MODEL, DEFAULT_CLF_MODEL
 import re
+from datetime import datetime, timezone
 
 TS_REGEX = re.compile(r"_(\d{8}_\d{4})")
 
@@ -151,18 +152,47 @@ def predict_batch(request: BatchRequest):
     return {"predictions": results, "errors": errors}
 
 
-@_router.get("/models")
-def list_available_models():
-    """Liste les modeles disponibles avec leur taille et date de modification."""
+@_router.get("/status")
+def status(symbol: str = "BTCUSDT"):
+    """Expose un statut exploitable en prod: version modele, metriques, fraicheur data.
+
+    Pourquoi ce endpoint est plus utile que /models:
+    - /models donnait juste nom/taille/date mtime (peu actionnable)
+    - /status donne les infos utiles a l'exploitation: qualite et fraicheur
+    """
     try:
-        models = []
-        for f in MODELS_DIR.glob("*.joblib"):
-            stat = f.stat()
-            models.append({
-                "name": f.name,
-                "size_mb": round(stat.st_size / 1024 / 1024, 2),
-                "modified": stat.st_mtime,
-            })
-        return {"models": sorted(models, key=lambda m: m["modified"], reverse=True)}
+        reg_path, clf_path, _, _ = get_model_paths()
+
+        # Chercher le dernier fichier metrics_*.json pour les KPI de qualite
+        metrics_file = _latest_file("metrics_*.json")
+        metrics = None
+        if metrics_file and metrics_file.exists():
+            with open(metrics_file, "r") as f:
+                metrics = json.load(f)
+
+        # Fraicheur des donnees: derniere bougie disponible pour un symbole de reference
+        try:
+            df = fetch_history(symbol, hours=1)
+            last_ts = datetime.fromisoformat(str(df.iloc[-1]["timestamp"]).replace("Z", "+00:00"))
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            lag_hours = round((now - last_ts).total_seconds() / 3600, 2)
+            freshness = {
+                "symbol": symbol,
+                "last_candle": last_ts.isoformat(),
+                "hours_since_update": lag_hours,
+            }
+        except Exception:
+            freshness = None
+
+        return {
+            "models": {
+                "regressor": reg_path.name,
+                "classifier": clf_path.name,
+            },
+            "metrics": metrics,
+            "data_freshness": freshness,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
