@@ -1,20 +1,26 @@
 FROM python:3.12-slim
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
-    procps \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copie requirements et installer deps
 COPY api/requirements.txt /tmp/api_req.txt
-RUN pip install --no-cache-dir -r /tmp/api_req.txt
+RUN uv pip install --system --no-cache -r /tmp/api_req.txt
 
 # Copie seulement le code API (pas algo_crypto/)
 COPY api /app/api
+
+# Copie le pipeline ML pour partager compute_symbol_indicators avec l'API
+# Seul feature_engineering.py est utilisé à l'inférence, mais on copie
+# le dossier entier pour éviter des erreurs d'import des __init__.py
+COPY scripts /app/scripts
 
 # Créé le répertoire pour les modèles (vide, sera monté)
 RUN mkdir -p /app/algo_crypto

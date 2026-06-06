@@ -1,7 +1,9 @@
+name: juil25-bde-crypto-main
+
 services:
   postgres:
     image: postgres:15
-    container_name: pg_crypto
+    container_name: pg__crypto_example
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

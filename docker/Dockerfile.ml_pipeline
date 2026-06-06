@@ -1,19 +1,20 @@
 FROM python:3.12-slim
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Empêche la création de fichiers .pyc dans le conteneur 
 # et active le mode unbuffered pour afficher directement les logs
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \ 
     libgomp1 \
-    procps \ 
     && rm -rf /var/lib/apt/lists/* 
 
 WORKDIR /app
 
-# Copie et isntalle les dépendances
+# Copie et installe les dépendances
 COPY scripts/ml_pipeline/requirements.txt /tmp/req.txt
-RUN pip install --no-cache-dir -r /tmp/req.txt
+RUN uv pip install --system --no-cache -r /tmp/req.txt
 
 # Copie seulement les scripts, pas les modèles
 COPY scripts /app/scripts
@@ -23,9 +24,6 @@ RUN mkdir -p /app/algo_crypto
 
 # Ajoute /app au PYTHONPATH pour que les imports fonctionnent correctement
 ENV PYTHONPATH=/app
-
-# Définit la variable d'environnement pour la connexion à la base de données
-ENV DATABASE_URL=postgresql+psycopg2://crypto:crypto@postgres:5432/crypto_trading
 
 # Commande par défaut pour exécuter le pipeline de formation
 CMD ["python", "/app/scripts/ml_pipeline/pipeline_train.py"]
