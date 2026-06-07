@@ -105,10 +105,10 @@ Les tests sont organisés avec trois marqueurs principaux :
 
 #### Tests d'Intégration
 - Endpoint `/health`
-- Endpoint `/models`
-- Endpoint `/predict_price_only`
-- Endpoint `/predict_direction_only`
-- Gestion des erreurs (features manquantes)
+- Endpoint `/status`
+- Endpoint `GET /predict/{symbol}`
+- Endpoint `POST /predict/batch`
+- Gestion des erreurs (batch partiel)
 
 ### Airflow (`tests/airflow/`)
 
@@ -145,31 +145,16 @@ markers =
 
 ## Pipeline CI (GitHub Actions)
 
-La pipeline CI (`.github/workflows/ci.yml`) exécute les tests en plusieurs jobs :
+La pipeline CI (`.github/workflows/ci.yml`) exécute deux jobs :
 
-### Job 1: Tests Unitaires (prioritaire)
-- Lance tous les tests marqués `@pytest.mark.unitaire`
-- Génère un rapport de couverture
-- **Bloquant** : si ces tests échouent, la pipeline s'arrête
+### Job 1: Tests unitaires (obligatoire)
+- Installe les dépendances Python depuis `requirements_local.txt`
+- Exécute les suites unitaires API, Airflow et Streamlit
+- **Bloquant** : un échec fait échouer la CI
 
-### Job 2: Tests d'Intégration API
-- Lance les tests d'intégration de l'API
-- Les tests nécessitant des artefacts sont automatiquement skippés en CI
-
-### Job 3: Tests Airflow
-- Installe Airflow avec contraintes
-- Valide la structure des DAGs
-
-### Job 4: Tests Streamlit
-- Vérifie la syntaxe et la logique de l'application
-
-### Job 5: Build Docker
-- Compile les images Docker
-- Effectue des smoke tests de base
-
-### Job 6: Résumé CI
-- Affiche un résumé des résultats
-- Échoue si les tests unitaires ou les builds Docker échouent
+### Job 2: Tests d'intégration (optionnel)
+- Exécute les suites d'intégration API, Airflow et Streamlit
+- `continue-on-error: true` : utile pour observer les régressions sans bloquer un merge urgent
 
 ## Bonnes Pratiques
 
@@ -192,20 +177,21 @@ def test_psi_on_identical_distributions():
 
 ### 2. Tests d'Intégration
 - **Préparez** : Utilisez des fixtures pour créer l'état initial
-- **Testez le comportement réel** : Pas de mocks sur les composants testés
+- **Testez les contrats HTTP** : Codes de statut, structure JSON, gestion des erreurs
 - **Vérifiez les contrats** : Validez les schémas de réponse
-- **Gérez les artefacts** : Utilisez `pytest.mark.skipif` si des ressources sont absentes
+- **Isolez les dépendances externes** : Monkeypatch des appels modèles/DB si besoin
 
 **Exemple :**
 ```python
 @pytest.mark.integration
-@REQUIRES_ARTIFACTS
-def test_predict_price_only_endpoint(client):
-    """L'endpoint /predict_price_only doit retourner un prix prédit."""
-    payload = build_payload_from_features()
-    response = client.post("/predict_price_only", json=payload)
+def test_predict_batch_endpoint(client):
+  """L'endpoint /predict/batch doit retourner predictions + errors."""
+  payload = {"symbols": ["BTCUSDT", "ETHUSDT"]}
+  response = client.post("/predict/batch", json=payload)
     assert response.status_code == 200
-    assert "predicted_price" in response.json()
+  body = response.json()
+  assert "predictions" in body
+  assert "errors" in body
 ```
 
 ### 3. Fixtures
