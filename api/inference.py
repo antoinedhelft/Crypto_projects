@@ -6,7 +6,7 @@ from pathlib import Path
 from functools import lru_cache
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from .feature_builder import latest_feature_row, fetch_history
+from .feature_builder import latest_feature_row, fetch_history, list_available_symbols
 from .settings import MODELS_DIR, DEFAULT_REG_MODEL, DEFAULT_CLF_MODEL
 import re
 from datetime import datetime, timezone
@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 TS_REGEX = re.compile(r"_(\d{8}_\d{4})")
 
 CLASS_NAMES = ["Baisse", "Stable", "Hausse"]  # 0, 1, 2
+SYMBOL_REGEX = re.compile(r"^[A-Z0-9]{3,20}$")
 
 
 def _latest_file(glob_pattern: str):
@@ -44,6 +45,14 @@ def _get_latest_clf_artifacts():
 
 
 _router = APIRouter()
+
+
+def _normalize_symbol(symbol: str) -> str:
+    """Nettoie et valide un symbole crypto avant usage."""
+    normalized = symbol.strip().upper()
+    if not SYMBOL_REGEX.fullmatch(normalized):
+        raise ValueError("Symbol must contain only uppercase letters and digits (3-20 chars)")
+    return normalized
 
 
 def _to_native(value):
@@ -80,6 +89,7 @@ def get_model_paths():
 
 def _predict_one(symbol: str) -> dict:
     """Logique de prediction factorisee, utilisee par /predict/{symbol} et /predict/batch."""
+    symbol = _normalize_symbol(symbol)
     reg_path, clf_path, reg_feat_path, clf_feat_path = get_model_paths()
 
     reg_model = load_model(str(reg_path))
@@ -143,13 +153,37 @@ def predict_batch(request: BatchRequest):
     """
     results = []
     errors = []
-    for symbol in request.symbols:
+    if not request.symbols:
+        raise HTTPException(status_code=400, detail="symbols cannot be empty")
+    if len(request.symbols) > 20:
+        raise HTTPException(status_code=400, detail="symbols batch is limited to 20 items")
+
+    seen = set()
+    for raw_symbol in request.symbols:
+        try:
+            symbol = _normalize_symbol(raw_symbol)
+            if symbol in seen:
+                continue
+            seen.add(symbol)
+        except ValueError as e:
+            errors.append({"symbol": raw_symbol, "error": str(e)})
+            continue
         try:
             results.append(_predict_one(symbol))
         except Exception as e:
             errors.append({"symbol": symbol, "error": str(e)})
 
     return {"predictions": results, "errors": errors}
+
+
+@_router.get("/symbols")
+def available_symbols():
+    """Liste les paires de cryptos présentes en base."""
+    try:
+        symbols = list_available_symbols()
+        return {"symbols": symbols, "count": len(symbols)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @_router.get("/status")

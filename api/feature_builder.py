@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 from sqlalchemy import create_engine, text
 from pathlib import Path
+from functools import lru_cache
 from .settings import MODELS_DIR, DATABASE_URL as API_DATABASE_URL
 
 # Import de la fonction partagee entre entrainement et inference.
@@ -11,6 +12,16 @@ from .settings import MODELS_DIR, DATABASE_URL as API_DATABASE_URL
 from scripts.ml_pipeline.feature_engineering import compute_symbol_indicators
 
 DATABASE_URL = API_DATABASE_URL
+
+
+@lru_cache(maxsize=1)
+def get_engine():
+    """Crée et réutilise une seule instance de moteur SQLAlchemy.
+
+    `pool_pre_ping=True` permet de tester la connexion avant utilisation et
+    de remplacer automatiquement une connexion devenue invalide.
+    """
+    return create_engine(DATABASE_URL, future=True, pool_pre_ping=True)
 
 
 def _latest_file(dir_path: Path, pattern: str):
@@ -48,7 +59,7 @@ def load_symbol_map() -> dict:
 
 
 def fetch_history(symbol: str, hours: int = 80) -> pd.DataFrame:
-    engine = create_engine(DATABASE_URL, future=True)
+    engine = get_engine()
     q = text("""
         SELECT p.symbol,
                c.open_datetime AS timestamp,
@@ -70,6 +81,20 @@ def fetch_history(symbol: str, hours: int = 80) -> pd.DataFrame:
         raise ValueError(f"No data for symbol={symbol}")
     df = df.sort_values("timestamp").reset_index(drop=True)
     return df
+
+
+def list_available_symbols() -> list[str]:
+    """Retourne la liste des paires disponibles dans la base de données."""
+    engine = get_engine()
+    q = text("""
+        SELECT DISTINCT p.symbol
+        FROM pair p
+        JOIN candlestick c ON c.pair_id = p.id
+        ORDER BY p.symbol
+    """)
+    with engine.connect() as conn:
+        rows = conn.execute(q).fetchall()
+    return [row[0] for row in rows]
 
 
 def latest_feature_row(symbol: str):

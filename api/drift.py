@@ -48,6 +48,11 @@ def _psi(expected: np.ndarray, actual: np.ndarray, bins: int = 10) -> float:
     return float(np.sum((act_pct - exp_pct) * np.log(act_pct / exp_pct)))
 
 
+def population_stability_index(expected: np.ndarray, actual: np.ndarray, bins: int = 10) -> float:
+    """API publique du calcul PSI (utilisee par les tests unitaires)."""
+    return _psi(expected, actual, bins=bins)
+
+
 def _status_from_psi(value: float) -> str:
     if pd.isna(value):
         return "unknown"
