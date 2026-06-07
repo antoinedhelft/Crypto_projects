@@ -16,8 +16,10 @@ def test_models_dir_default_path(monkeypatch):
     from api import settings
     importlib.reload(settings)
 
-    # Le chemin de base est le parent du dossier 'api'
-    expected_path = Path(settings.BASE_DIR) / "algo_crypto"
+    if Path("/app").exists():
+        expected_path = Path("/app/algo_crypto")
+    else:
+        expected_path = Path(settings.__file__).resolve().parents[1] / "algo_crypto"
     assert settings.MODELS_DIR == expected_path
 
 @pytest.mark.unitaire

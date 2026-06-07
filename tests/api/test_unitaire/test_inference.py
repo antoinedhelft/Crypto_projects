@@ -78,3 +78,50 @@ def test_load_features_is_cached(monkeypatch, tmp_path):
     assert feats1 is feats2
     assert feats1 == ["feat1", "feat2"]
 
+
+@pytest.mark.unitaire
+def test_normalize_symbol_accepts_common_input():
+    """Les symboles doivent etre nettoyes puis valides avant usage."""
+    assert inference._normalize_symbol(" btcusdt ") == "BTCUSDT"
+    assert inference._normalize_symbol("eth123") == "ETH123"
+
+
+@pytest.mark.unitaire
+def test_normalize_symbol_rejects_invalid_values():
+    """Les symboles incoherents doivent etre rejetes explicitement."""
+    with pytest.raises(ValueError):
+        inference._normalize_symbol("BTC/USDT")
+    with pytest.raises(ValueError):
+        inference._normalize_symbol("")
+    with pytest.raises(ValueError):
+        inference._normalize_symbol("ab")
+
+
+@pytest.mark.unitaire
+def test_status_returns_operational_payload(monkeypatch):
+    """L'endpoint status doit retourner version modele + metriques + date d'entrainement."""
+    class _FakePath:
+        def __init__(self, name):
+            self.name = name
+            self._exists = True
+
+        def exists(self):
+            return self._exists
+
+    monkeypatch.setattr(
+        inference,
+        "get_model_paths",
+        lambda: (_FakePath("reg.joblib"), _FakePath("clf.joblib"), _FakePath("r.json"), _FakePath("c.json")),
+    )
+    monkeypatch.setattr(inference, "_latest_file", lambda pattern: None)
+
+    import pandas as pd
+    fake_df = pd.DataFrame([{"timestamp": "2026-01-01T00:00:00+00:00"}])
+    monkeypatch.setattr(inference, "fetch_history", lambda symbol, hours=1: fake_df)
+
+    payload = inference.status(symbol="BTCUSDT")
+    assert payload["models"]["regressor"] == "reg.joblib"
+    assert payload["models"]["classifier"] == "clf.joblib"
+    assert payload["metrics"] is None
+    assert payload["data_freshness"]["symbol"] == "BTCUSDT"
+
