@@ -12,9 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copie et installe les dépendances
-COPY scripts/ml_pipeline/requirements.txt /tmp/req.txt
-RUN uv pip install --system --no-cache -r /tmp/req.txt
+# Copie et installe les dépendances via uv
+COPY pyproject.toml uv.lock /app/
+RUN uv export --frozen --only-group ml_pipeline --format requirements-txt -o /tmp/req.txt \
+    && uv pip install --system --no-cache -r /tmp/req.txt
 
 # Copie seulement les scripts, pas les modèles
 COPY scripts /app/scripts

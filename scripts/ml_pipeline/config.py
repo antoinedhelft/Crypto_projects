@@ -30,6 +30,7 @@ FEATURES_CLF_JSON = ALGO_DIR / f"classifier_features_{timestamp}.json"
 METRICS_JSON = ALGO_DIR / f"metrics_{timestamp}.json"
 # Mapping symbol -> code entier, sauvegarde pour que l'inference utilise les memes codes
 SYMBOL_MAP_JSON = ALGO_DIR / f"symbol_map_{timestamp}.json"
+DEPLOYED_MODEL_JSON = ALGO_DIR / "deployed_model.json"
 
 # Paths des modèles actuels (liens symboliques)
 MODEL_REG_CURRENT = ALGO_DIR / "crypto_regressor_lgbm.joblib"

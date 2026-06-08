@@ -1,81 +1,105 @@
+# Projet Crypto Data Engineering
 
-## Variables d'environnement et démarrage
+Ce projet met en place une chaîne data complète autour de données de marché crypto : ingestion horaire depuis Binance, stockage PostgreSQL, orchestration Airflow, entraînement mensuel de modèles ML, exposition des prédictions via FastAPI et visualisation via Streamlit.
 
-Version fonctionnelle :
+L'objectif principal est data engineering : automatiser un flux fiable, rejouable et observable. La partie ML et les interfaces servent à exploiter les données produites par la plateforme, pas à remplacer le coeur pipeline.
 
+## Ce que montre le projet
+
+- ingestion initiale et incrémentale de données OHLCV dans PostgreSQL
+- orchestration Airflow avec DAGs de chargement initial, mise à jour horaire et entraînement mensuel
+- séparation des composants par service Docker : base, orchestrateur, API, UI, pipelines
+- exposition d'une API FastAPI avec endpoint de santé, prédiction et dérive
+- monitoring applicatif via `/metrics` côté API
+- exécution locale reproductible via `uv` et `docker compose`
+
+## Architecture
+
+1. Le pipeline d'ingestion initialise les paires crypto et charge l'historique disponible.
+2. Un DAG Airflow met à jour les bougies chaque heure et garantit que le chargement initial a bien été réalisé.
+3. Un pipeline ML entraîne des modèles partagés entre plusieurs paires en prédisant une variation relative du prix, pas un prix absolu.
+4. L'API charge les artefacts produits et expose les prédictions ainsi que des indicateurs de fraîcheur et de dérive.
+5. Streamlit fournit une interface de démonstration au-dessus des données et des prédictions.
+
+## Choix techniques importants
+
+- La cible du modèle est `next_close_pct_change` et non un prix brut. Cela permet d'entraîner un seul modèle sur plusieurs paires avec des échelles très différentes comme BTCUSDT et ETHUSDT.
+- Airflow reste isolé dans son image Docker. Airflow 2.9.2 dépend de `SQLAlchemy < 2`, alors que l'API et les pipelines utilisent `SQLAlchemy >= 2`.
+- `pyproject.toml` et `uv.lock` sont la source unique de vérité pour les dépendances. Les anciens `requirements.txt` ont été retirés.
+
+## Démarrage rapide
+
+Pré-requis : Python 3.12, `uv`, Docker Desktop.
+
+1. Clonez le dépôt.
+2. Créez un fichier `.env` à partir de `.env.example`.
+3. Créez l'environnement local :
+
+```powershell
+uv venv --python 3.12
+.\.venv\Scripts\Activate
+uv sync --group dev --group api --group data_pipeline --group ml_pipeline --group streamlit
 ```
-1) Clonez le repo
-```
-Utilisation de python 3.12.9 via pyenv-win
-```
-2) Puis créez un fichier `.env` en vous basant sur le `.env.example` en modifiant avec vos valeurs locales si besoin. (C'est juste un copier/coller en modifiant avec les valeurs que vous souhaitez)
 
-- Pour obtenir la clé airflow secrète à mettre dans .env :
+4. Générez les secrets Airflow si besoin :
+
+```powershell
 python -c "import secrets; print(secrets.token_urlsafe(64))"
-
-- Pour obtenir la clé Fernet à mettre dans .env :
 docker compose run --rm airflow-webserver python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-(ps : si vous avez déjà build les conteneurs, vous pouvez juste relancer ceux utiles :
-docker compose up -d --build airflow-webserver airflow-scheduler)
-
-3) Créez un venv pour les dépendances/bibliothèques
 ```
-- python -m venv .venv
-- .\.venv\Scripts\Activate
-- pip install -r requirements_local.txt
-``
-4) Lancez docker desktop
 
-5) Puis dans votre IDE lancez ces commandes :
-`docker compose --profile images build` # build des images
-`docker compose up -d --build` # build des conteneurs
+5. Construisez les images et démarrez la stack :
 
+```powershell
+docker compose --profile images build
+docker compose up -d --build
+```
 
-Permet de démarrer l'ensemble automatiquement, plus besoin d'intéragir avec airflow, même lors du premier lancement.
+## Accès aux services
 
+- FastAPI : `http://localhost:8000/docs`
+- Airflow : `http://localhost:8080`
+- Streamlit : `http://localhost:8501`
 
-###
-Si vous modifiez le data pipeline ou ml pipeline, il faut recosntruire l'image :
-`docker build -t crypto_data_pipeline:latest -f docker/Dockerfile.data_pipeline .`
-`docker build -t crypto_ml_pipeline:latest -f docker/Dockerfile.ml_pipeline .`
-Et redémarrer les service Airflow.
+## Commandes utiles
 
-- Une fois lancez, vous pourrez accéder à fastapi à l'adresse : 
-localhost:8000/docs
-- airflow : 
-localhost:8080    ### les identifiants dans .env sont admin/admin de base, c'est pourquoi vous pouvez/devez les changer
-- streamlit : 
-localhost:8501
+### Local avec uv
 
+```powershell
+uv run pytest -q
+uv run python main.py
+```
 
-- Pour éteindre docker sans perte de données :
-`docker compose down`
+### Rebuild ciblé
 
-- Pour relancer docker : 
-`docker compose up -d`
+- Si vous modifiez l'API ou ses dépendances : `docker compose build api ; docker compose up -d api`
+- Si vous modifiez l'image Airflow : `docker compose build airflow-webserver airflow-scheduler airflow-init ; docker compose up -d airflow-webserver airflow-scheduler`
+- Si vous modifiez le pipeline data ou ML :
 
-# Rebuild ciblé après modifications importantes:
-- Si vous modifiez l'API ou ses dépendances: `docker compose build api ; docker compose up -d api`
-- Si vous modifiez Airflow (DAGs ou image): `docker compose build airflow ; docker compose up -d airflow`
-- Pour (re)charger uniquement les DAGs sans rebuild d'image, ils sont montés dans le conteneur: un simple `docker compose up -d airflow-webserver airflow-scheduler` suffit après vos changements de fichiers dans `airflow/dags/`.
+```powershell
+docker build -t crypto_data_pipeline:latest -f docker/Dockerfile.data_pipeline .
+docker build -t crypto_ml_pipeline:latest -f docker/Dockerfile.ml_pipeline .
+```
 
-# Accéder à la base Postgres dans le conteneur:
-`docker exec -it pg_crypto psql -U crypto -d crypto_trading`
+- Si vous modifiez seulement les DAGs Airflow montés en volume : `docker compose up -d airflow-webserver airflow-scheduler`
 
-ou utiliser l'extension vscode 'PostgreSQL' de Chris Kolkman (F5 pour run la query)
+### Base PostgreSQL
 
+```powershell
+docker exec -it pg__crypto_example psql -U crypto -d crypto_trading
+```
 
-### Si vous aviez déjà lancé le projet :
-`docker compose down --volumes --remove-orphans`
-Permet d'arrêter et nettoyer les conteneur, réseaux et volumes du projets
-# Supprimez toutes les images directement via docker desktop, sinon :
-`docker compose down --rmi local --volumes --remove-orphans`
-`docker system prune -a --volumes`
-# ATTENTION ça purge toutes les images, même celles qui ne sont pas du projets si elles sont taguées pareil.
+## Arrêt et nettoyage
 
-Puis on rebuild complètement :
-`docker compose build --no-cache`
+- Arrêt simple : `docker compose down`
+- Redémarrage : `docker compose up -d`
+- Reset complet du projet : `docker compose down --volumes --remove-orphans`
 
-puis on démarre :
-`docker compose up -d`
+Pour reconstruire entièrement les images :
+
+```powershell
+docker compose build --no-cache
+docker compose up -d
+```
+
+Évitez `docker system prune -a --volumes` sauf si vous voulez purger l'ensemble de votre environnement Docker local.

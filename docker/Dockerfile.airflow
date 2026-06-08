@@ -6,8 +6,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends libgomp1 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY airflow/requirements.txt /requirements.txt
-RUN uv pip install --system --no-cache -r /requirements.txt
+WORKDIR /opt/airflow/repo
+COPY pyproject.toml uv.lock /opt/airflow/repo/
+RUN uv export --frozen --only-group airflow --format requirements-txt -o /tmp/req.txt \
+    && uv pip install --system --no-cache -r /tmp/req.txt
 
 USER airflow
 ENV PATH="/home/airflow/.local/bin:$PATH"

@@ -44,6 +44,24 @@ def _get_latest_clf_artifacts():
     return clf_model, clf_feats
 
 
+def _load_deployed_registry() -> dict | None:
+    path = MODELS_DIR / "deployed_model.json"
+    if not path.exists():
+        return None
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def _load_latest_data_quality() -> dict | None:
+    dq_file = MODELS_DIR / "data_quality_latest.json"
+    if not dq_file.exists():
+        dq_file = _latest_file("data_quality_*.json")
+    if not dq_file or not dq_file.exists():
+        return None
+    with open(dq_file, "r") as f:
+        return json.load(f)
+
+
 _router = APIRouter()
 
 
@@ -79,8 +97,35 @@ def load_features(path: str):
 
 def get_model_paths():
     """Verifie et retourne les 4 artefacts necessaires pour une prediction complete."""
-    reg_path, reg_feat_path = _get_latest_reg_artifacts()
-    clf_path, clf_feat_path = _get_latest_clf_artifacts()
+    reg_path = None
+    clf_path = None
+    try:
+        registry = _load_deployed_registry()
+    except Exception:
+        registry = None
+
+    if registry and isinstance(registry, dict):
+        deployed = registry.get("deployed") or {}
+        reg_name = deployed.get("regressor")
+        clf_name = deployed.get("classifier")
+        if reg_name:
+            candidate = MODELS_DIR / reg_name
+            if candidate.exists():
+                reg_path = candidate
+        if clf_name:
+            candidate = MODELS_DIR / clf_name
+            if candidate.exists():
+                clf_path = candidate
+
+    if reg_path is None:
+        reg_path, _ = _get_latest_reg_artifacts()
+    if clf_path is None:
+        clf_path, _ = _get_latest_clf_artifacts()
+
+    # Les listes de features restent calées sur les artefacts les plus récents.
+    reg_feat_path = _latest_file("regressor_features_*.json") or (MODELS_DIR / "regressor_features.json")
+    clf_feat_path = _latest_file("classifier_features_*.json") or (MODELS_DIR / "classifier_features.json")
+
     for p in [reg_path, clf_path, reg_feat_path, clf_feat_path]:
         if not p.exists():
             raise FileNotFoundError(f"Required file not found: {p}")
@@ -119,6 +164,7 @@ def _predict_one(symbol: str) -> dict:
             "regressor": reg_path.name,
             "classifier": clf_path.name,
         },
+        "deployment": _load_deployed_registry(),
         "prediction": {
             "next_close_pct_change": round(reg_pred_pct, 4),
             "direction": CLASS_NAMES[clf_pred_idx],
@@ -220,6 +266,31 @@ def status(symbol: str = "BTCUSDT"):
         except Exception:
             freshness = None
 
+        data_quality = None
+        try:
+            data_quality_report = _load_latest_data_quality()
+            if data_quality_report is None:
+                data_quality = {
+                    "available": False,
+                    "reason": "no_data_quality_report_found",
+                }
+            else:
+                data_quality = {
+                    "available": True,
+                    "report": data_quality_report,
+                }
+        except Exception:
+            data_quality = {
+                "available": False,
+                "reason": "data_quality_report_unreadable",
+            }
+
+        model_deployment = None
+        try:
+            model_deployment = _load_deployed_registry()
+        except Exception:
+            model_deployment = None
+
         return {
             "models": {
                 "regressor": reg_path.name,
@@ -227,6 +298,8 @@ def status(symbol: str = "BTCUSDT"):
             },
             "metrics": metrics,
             "data_freshness": freshness,
+            "data_quality": data_quality,
+            "model_deployment": model_deployment,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

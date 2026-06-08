@@ -1,11 +1,91 @@
 [project]
 name = "juil25-bde-crypto-main"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.13.2"
-dependencies = [
+description = "Crypto data engineering project with ingestion, orchestration, API, and ML serving"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
     "httpx>=0.28.1",
     "pytest>=9.0.3",
     "python-dotenv>=1.2.2",
+    "requests>=2.31.0",
+]
+api = [
+    "fastapi",
+    "joblib",
+    "lightgbm",
+    "pandas>=2.2.2",
+    "prometheus-fastapi-instrumentator==6.1.0",
+    "psycopg2-binary>=2.9.9",
+    "pydantic",
+    "python-binance",
+    "scikit-learn",
+    "sqlalchemy>=2.0.30",
+    "ta",
+    "uvicorn",
+]
+airflow = [
+    "apache-airflow==2.9.2",
+    "apache-airflow-providers-docker",
+    "apache-airflow-providers-postgres",
+    "docker",
+    "joblib",
+    "lightgbm",
+    "pandas",
+    "psycopg2-binary",
+    "python-binance",
+    "scikit-learn",
+    "sqlalchemy",
+    "ta",
+]
+data_pipeline = [
+    "pandas>=2.2.2",
+    "psycopg2-binary>=2.9.9",
+    "python-binance",
+    "python-dotenv>=1.2.2",
+    "sqlalchemy>=2.0.30",
+]
+ml_pipeline = [
+    "joblib",
+    "lightgbm",
+    "pandas>=2.2.2",
+    "psutil",
+    "psycopg2-binary>=2.9.9",
+    "scikit-learn",
+    "sqlalchemy>=2.0.30",
+    "ta",
+]
+streamlit = [
+    "joblib",
+    "lightgbm",
+    "numpy",
+    "pandas>=2.2.2",
+    "plotly",
+    "psycopg2-binary>=2.9.9",
+    "requests>=2.31.0",
+    "scikit-learn",
+    "sqlalchemy>=2.0.30",
     "streamlit>=1.58.0",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        { group = "airflow" },
+        { group = "api" },
+    ],
+    [
+        { group = "airflow" },
+        { group = "data_pipeline" },
+    ],
+    [
+        { group = "airflow" },
+        { group = "ml_pipeline" },
+    ],
+    [
+        { group = "airflow" },
+        { group = "streamlit" },
+    ],
 ]

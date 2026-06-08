@@ -42,6 +42,24 @@ def test_status_endpoint(client, monkeypatch):
         "fetch_history",
         lambda symbol, hours=1: pd.DataFrame([{"timestamp": datetime.now(timezone.utc).isoformat()}]),
     )
+    monkeypatch.setattr(
+        inference,
+        "_load_deployed_registry",
+        lambda: {
+            "deployed": {
+                "regressor": "reg.joblib",
+                "classifier": "clf.joblib",
+                "trained_at": "2026-01-01T00:00:00",
+                "score": 0.12,
+            },
+            "last_candidate": {
+                "regressor": "reg_prev.joblib",
+                "classifier": "clf_prev.joblib",
+                "trained_at": "2025-12-01T00:00:00",
+                "score": 0.10,
+            },
+        },
+    )
 
     response = client.get("/status?symbol=BTCUSDT")
     assert response.status_code == 200
@@ -49,6 +67,9 @@ def test_status_endpoint(client, monkeypatch):
     assert data["models"]["regressor"] == "reg.joblib"
     assert data["models"]["classifier"] == "clf.joblib"
     assert data["data_freshness"]["symbol"] == "BTCUSDT"
+    assert "data_quality" in data
+    assert "model_deployment" in data
+    assert data["model_deployment"]["deployed"]["regressor"] == "reg.joblib"
 
 
 @pytest.mark.integration

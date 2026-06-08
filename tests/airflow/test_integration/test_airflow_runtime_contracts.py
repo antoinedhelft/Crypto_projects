@@ -1,0 +1,71 @@
+"""Tests d'integration Airflow sur les contrats d'execution des DAGs.
+
+Ces tests verifient des proprietes runtime importantes (images Docker, commandes,
+ordonnancement des taches) sans necessiter un scheduler Airflow actif.
+"""
+
+import os
+from pathlib import Path
+
+import pytest
+
+
+AIRFLOW_AVAILABLE = False
+if os.name != "nt":
+    AIRFLOW_TEST_HOME = Path(__file__).resolve().parents[3] / ".airflow_test"
+    AIRFLOW_TEST_HOME.mkdir(parents=True, exist_ok=True)
+    AIRFLOW_TEST_DB = (AIRFLOW_TEST_HOME / "airflow_test.db").resolve()
+
+    os.environ.setdefault("AIRFLOW_HOME", str(AIRFLOW_TEST_HOME))
+    os.environ.setdefault("AIRFLOW__CORE__LOAD_EXAMPLES", "False")
+    os.environ.setdefault("AIRFLOW__DATABASE__SQL_ALCHEMY_CONN", f"sqlite:///{AIRFLOW_TEST_DB.as_posix()}")
+
+    try:
+        from airflow.models import DagBag
+        from airflow.providers.docker.operators.docker import DockerOperator
+        AIRFLOW_AVAILABLE = True
+    except ImportError:
+        AIRFLOW_AVAILABLE = False
+
+
+DAGS_DIR = Path(__file__).resolve().parents[3] / "airflow" / "dags"
+
+SKIP_NO_AIRFLOW = pytest.mark.skipif(
+    not AIRFLOW_AVAILABLE,
+    reason="Airflow integration contracts run in Linux CI with airflow dependencies",
+)
+
+
+@pytest.mark.integration
+@SKIP_NO_AIRFLOW
+def test_hourly_update_dag_uses_expected_docker_contract():
+    dag_bag = DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
+    assert len(dag_bag.import_errors) == 0, f"Erreurs d'import detectees: {dag_bag.import_errors}"
+
+    dag = dag_bag.get_dag("crypto_hourly_update")
+    assert dag is not None, "Le DAG crypto_hourly_update doit exister"
+
+    update_task = dag.get_task("update_candles")
+    assert isinstance(update_task, DockerOperator)
+    assert update_task.image == "crypto_data_pipeline:latest"
+    assert update_task.command == "-m scripts.data_pipeline.incremental_update"
+    assert update_task.network_mode == "juil25-bde-crypto-main_default"
+
+
+@pytest.mark.integration
+@SKIP_NO_AIRFLOW
+def test_initial_load_dag_task_order_is_gated():
+    dag_bag = DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
+    assert len(dag_bag.import_errors) == 0, f"Erreurs d'import detectees: {dag_bag.import_errors}"
+
+    dag = dag_bag.get_dag("crypto_initial_load")
+    assert dag is not None, "Le DAG crypto_initial_load doit exister"
+
+    wait_task = dag.get_task("wait_for_postgres")
+    gate_task = dag.get_task("gate_db_empty")
+    load_task = dag.get_task("initial_load")
+    mark_task = dag.get_task("mark_initial_load_done")
+
+    assert gate_task.task_id in wait_task.downstream_task_ids
+    assert load_task.task_id in gate_task.downstream_task_ids
+    assert mark_task.task_id in load_task.downstream_task_ids

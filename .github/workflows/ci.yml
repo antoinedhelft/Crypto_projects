@@ -23,12 +23,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_local.txt
+          python -m pip install --upgrade pip uv
+          uv sync --group dev --group api --group data_pipeline --group ml_pipeline --group streamlit
 
       - name: Run unit tests
         run: |
-          pytest -q tests/api/test_unitaire tests/airflow/test_unitaire tests/streamlit/test_unitaire
+          uv run pytest -q tests/api/test_unitaire tests/airflow/test_unitaire tests/streamlit/test_unitaire
 
   integration-tests:
     name: Integration tests (optional)
@@ -46,9 +46,32 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_local.txt
+          python -m pip install --upgrade pip uv
+          uv sync --group dev --group api --group data_pipeline --group ml_pipeline --group streamlit
 
       - name: Run integration tests
         run: |
-          pytest -q tests/api/test_integration tests/streamlit/test_integration tests/airflow/test_integration
+          uv run pytest -q tests/api/test_integration tests/streamlit/test_integration
+
+  airflow-integration-tests:
+    name: Airflow integration contracts (optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install airflow test dependencies
+        run: |
+          python -m pip install --upgrade pip uv
+          uv sync --group dev --group airflow
+
+      - name: Run airflow integration contract tests
+        run: |
+          uv run pytest -q tests/airflow/test_integration

@@ -3,8 +3,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY scripts/data_pipeline/requirements.txt /tmp/req.txt
-RUN uv pip install --system --no-cache -r /tmp/req.txt
+COPY pyproject.toml uv.lock /app/
+RUN uv export --frozen --only-group data_pipeline --format requirements-txt -o /tmp/req.txt \
+	&& uv pip install --system --no-cache -r /tmp/req.txt
 COPY scripts /app/scripts
 ENV PYTHONPATH=/app
 ENTRYPOINT ["python"]

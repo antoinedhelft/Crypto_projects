@@ -17,7 +17,7 @@ try:
     from scripts.ml_pipeline.feature_engineering import build_features
     from scripts.ml_pipeline.config import (
         MODEL_REG_PATH, MODEL_CLF_PATH,
-        FEATURES_REG_JSON, FEATURES_CLF_JSON, METRICS_JSON, SYMBOL_MAP_JSON
+        FEATURES_REG_JSON, FEATURES_CLF_JSON, METRICS_JSON, SYMBOL_MAP_JSON, DEPLOYED_MODEL_JSON
     )
     from scripts.ml_pipeline.models.regression import train_regressor
     from scripts.ml_pipeline.models.classification import train_classifier
@@ -26,6 +26,65 @@ try:
 except ImportError as e:
     print(f"[ERROR] Import failed: {e}")
     sys.exit(1)
+
+
+def _score(metrics: dict) -> float:
+    mae = float(metrics.get("regression", {}).get("mae_pct", 1e9))
+    f1 = float(metrics.get("classification", {}).get("f1_macro", 0.0))
+    # Plus bas MAE et plus haut F1 => meilleur score
+    return f1 - mae
+
+
+def _load_previous_metrics() -> dict | None:
+    previous_metrics_files = sorted(Path(METRICS_JSON).parent.glob("metrics_*.json"))
+    if not previous_metrics_files:
+        return None
+    latest = previous_metrics_files[-1]
+    with open(latest) as f:
+        return json.load(f)
+
+
+def _update_deployed_registry(metrics_new: dict) -> None:
+    current_candidate = {
+        "trained_at": metrics_new.get("trained_at"),
+        "regressor": MODEL_REG_PATH.name,
+        "classifier": MODEL_CLF_PATH.name,
+        "metrics": metrics_new,
+        "score": _score(metrics_new),
+    }
+
+    current_registry = None
+    if DEPLOYED_MODEL_JSON.exists():
+        try:
+            with open(DEPLOYED_MODEL_JSON, "r") as f:
+                current_registry = json.load(f)
+        except Exception:
+            current_registry = None
+
+    keep_existing = False
+    if current_registry and isinstance(current_registry, dict):
+        deployed = current_registry.get("deployed") or {}
+        deployed_metrics = deployed.get("metrics") or {}
+        if deployed_metrics:
+            deployed_score = _score(deployed_metrics)
+            keep_existing = deployed_score >= current_candidate["score"]
+
+    if keep_existing and current_registry:
+        current_registry["last_candidate"] = current_candidate
+        current_registry["updated_at"] = datetime.datetime.now().isoformat()
+        payload = current_registry
+        print("[MODEL] Champion conservé, dernier run stocké en challenger.")
+    else:
+        payload = {
+            "updated_at": datetime.datetime.now().isoformat(),
+            "deployed": current_candidate,
+            "last_candidate": current_candidate,
+        }
+        print("[MODEL] Nouveau champion déployé depuis le dernier run.")
+
+    with open(DEPLOYED_MODEL_JSON, "w") as f:
+        json.dump(payload, f, indent=2)
+    print(f"[MODEL] Registre déploiement mis à jour: {DEPLOYED_MODEL_JSON}")
 
 def main():
     print("[DEBUG] Début main()")
@@ -96,11 +155,8 @@ def main():
         }
 
         # Comparaison avec les métriques précédentes si elles existent
-        previous_metrics_files = sorted(Path(METRICS_JSON).parent.glob("metrics_*.json"))
-        if previous_metrics_files:
-            latest = previous_metrics_files[-1]
-            with open(latest) as f:
-                metrics_prev = json.load(f)
+        metrics_prev = _load_previous_metrics()
+        if metrics_prev:
             prev_mae = metrics_prev.get("regression", {}).get("mae_pct")
             prev_f1  = metrics_prev.get("classification", {}).get("f1_macro")
             new_mae  = metrics_new["regression"]["mae_pct"]
@@ -115,6 +171,8 @@ def main():
         with open(str(METRICS_JSON), 'w') as f:
             json.dump(metrics_new, f, indent=2)
         print(f"[METRICS] Métriques sauvées dans {METRICS_JSON}")
+
+        _update_deployed_registry(metrics_new)
 
         print("[DEBUG] Training terminé avec succès!")
         

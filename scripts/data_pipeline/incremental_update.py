@@ -1,9 +1,11 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import time
+import json
+import os
 import pandas as pd
 from binance.client import Client
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.orm import Session
 from .db_utils import SessionLocal, init_db, engine  
 from .models import Pair, Candlestick as Candle, Exchange, Crypto  
@@ -20,6 +22,8 @@ client = Client()
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
+MODELS_DIR = Path(os.getenv("MODELS_DIR", str(PROJECT_ROOT / "algo_crypto")))
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 def log(msg: str):
     print(f"[{datetime.now().isoformat()}] {msg}")
@@ -237,6 +241,133 @@ def get_last_open_datetime(db: Session, pair_id: int):
         select(func.max(Candle.open_datetime)).where(Candle.pair_id == pair_id)
     ).scalar_one_or_none()
 
+
+def _compute_data_quality_report(db: Session) -> dict:
+    total_rows = int(db.execute(select(func.count(Candle.id))).scalar_one() or 0)
+
+    symbol_count = int(
+        db.execute(
+            select(func.count(func.distinct(Pair.symbol)))
+            .select_from(Candle)
+            .join(Pair, Pair.id == Candle.pair_id)
+        ).scalar_one()
+        or 0
+    )
+
+    latest_open = db.execute(select(func.max(Candle.open_datetime))).scalar_one_or_none()
+    if latest_open is not None and latest_open.tzinfo is None:
+        latest_open = latest_open.replace(tzinfo=timezone.utc)
+
+    null_count = int(
+        db.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM candlestick
+                WHERE pair_id IS NULL
+                   OR open_datetime IS NULL
+                   OR close_datetime IS NULL
+                   OR open_price IS NULL
+                   OR high_price IS NULL
+                   OR low_price IS NULL
+                   OR close_price IS NULL
+                   OR volume_base IS NULL
+                   OR volume_quote IS NULL
+                """
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    invalid_price_count = int(
+        db.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM candlestick
+                WHERE open_price <= 0
+                   OR high_price <= 0
+                   OR low_price <= 0
+                   OR close_price <= 0
+                """
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    duplicate_pair_time_groups = int(
+        db.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT pair_id, open_datetime, COUNT(*) AS n
+                    FROM candlestick
+                    GROUP BY pair_id, open_datetime
+                    HAVING COUNT(*) > 1
+                ) d
+                """
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    now_utc = datetime.now(timezone.utc)
+    freshness_hours = None
+    if latest_open is not None:
+        freshness_hours = round((now_utc - latest_open).total_seconds() / 3600, 2)
+
+    checks = {
+        "null_critical_fields": {
+            "count": null_count,
+            "status": "ok" if null_count == 0 else "fail",
+        },
+        "non_positive_prices": {
+            "count": invalid_price_count,
+            "status": "ok" if invalid_price_count == 0 else "fail",
+        },
+        "duplicate_pair_open_datetime": {
+            "count": duplicate_pair_time_groups,
+            "status": "ok" if duplicate_pair_time_groups == 0 else "fail",
+        },
+        "freshness_hours": {
+            "value": freshness_hours,
+            "status": (
+                "unknown"
+                if freshness_hours is None
+                else "ok"
+                if freshness_hours <= 2.0
+                else "warn"
+            ),
+        },
+    }
+
+    overall_status = "ok"
+    if any(v.get("status") == "fail" for v in checks.values()):
+        overall_status = "fail"
+    elif any(v.get("status") == "warn" for v in checks.values()):
+        overall_status = "warn"
+
+    return {
+        "generated_at": now_utc.isoformat(),
+        "table": "candlestick",
+        "row_count": total_rows,
+        "symbol_count": symbol_count,
+        "latest_open_datetime": latest_open.isoformat() if latest_open else None,
+        "overall_status": overall_status,
+        "checks": checks,
+    }
+
+
+def _persist_data_quality_report(report: dict) -> None:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    history_file = MODELS_DIR / f"data_quality_{timestamp}.json"
+    latest_file = MODELS_DIR / "data_quality_latest.json"
+
+    history_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    latest_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    log(f"Data quality report saved: {latest_file.name} (status={report.get('overall_status')})")
+
 def run_incremental_cycle():
     init_db()
 
@@ -319,6 +450,12 @@ def run_incremental_cycle():
                     db.bulk_save_objects(candles)
                     db.commit()
                     log(f"{symbol}: (rattrapage) {len(candles)} bougies (4 ans).")
+
+        try:
+            dq_report = _compute_data_quality_report(db)
+            _persist_data_quality_report(dq_report)
+        except Exception as e:
+            log(f"Data quality report generation failed: {e}")
 
 def main():
     run_incremental_cycle()

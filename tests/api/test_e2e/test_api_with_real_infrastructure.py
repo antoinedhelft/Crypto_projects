@@ -21,7 +21,7 @@ pytestmark = pytest.mark.e2e
 
 # Configuration
 API_URL = os.getenv("API_URL", "http://localhost:8000")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://airflow:airflow@localhost:5432/crypto_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://crypto:crypto@localhost:5432/crypto_trading")
 
 
 @pytest.fixture(scope="module")
@@ -97,9 +97,8 @@ def test_predict_endpoint_with_real_data():
     assert "prediction" in data
     prediction = data["prediction"]
     
-    assert "next_close_price" in prediction
-    assert isinstance(prediction["next_close_price"], (int, float))
-    assert prediction["next_close_price"] > 0
+    assert "next_close_pct_change" in prediction
+    assert isinstance(prediction["next_close_pct_change"], (int, float))
     
     assert "direction" in prediction
     assert prediction["direction"] in ["Baisse", "Stable", "Hausse"]
@@ -108,22 +107,19 @@ def test_predict_endpoint_with_real_data():
     if prediction["confidence"] is not None:
         assert 0 <= prediction["confidence"] <= 100
     
-    print(f"✅ Prédiction : {prediction['next_close_price']} USD, Direction : {prediction['direction']}")
+    print(f"✅ Prédiction : {prediction['next_close_pct_change']} %, Direction : {prediction['direction']}")
 
 
-def test_models_endpoint_lists_models():
-    """Vérifie que l'endpoint /models retourne bien des modèles."""
-    response = requests.get(f"{API_URL}/models")
+def test_status_endpoint_returns_models_and_freshness():
+    """Vérifie que l'endpoint /status retourne les modèles et la fraîcheur des données."""
+    response = requests.get(f"{API_URL}/status")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert "models" in data
-    assert isinstance(data["models"], list)
-    
-    # On devrait avoir au moins 2 modèles (regressor + classifier)
-    assert len(data["models"]) >= 2, "Au moins 2 modèles devraient être présents"
-    
-    print(f"✅ {len(data['models'])} modèles disponibles")
+    assert data["models"]["regressor"]
+    assert data["models"]["classifier"]
+    assert "data_freshness" in data
 
 
 def test_predict_multiple_symbols(db_connection):
@@ -143,7 +139,7 @@ def test_predict_multiple_symbols(db_connection):
             if response.status_code == 200:
                 successful_predictions += 1
                 data = response.json()
-                print(f"  ✅ {symbol}: {data['prediction']['next_close_price']} USD")
+                print(f"  ✅ {symbol}: {data['prediction']['next_close_pct_change']} %")
             else:
                 print(f"  ⚠️  {symbol}: Erreur {response.status_code}")
         except Exception as e:

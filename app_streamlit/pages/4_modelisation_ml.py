@@ -58,6 +58,16 @@ def api_predict_symbol(symbol: str) -> dict | None:
     except Exception:
         return None
 
+
+def api_status(symbol: str) -> dict | None:
+    try:
+        base = _api_base_url().rstrip("/")
+        resp = requests.get(f"{base}/status", params={"symbol": symbol}, timeout=5)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return None
+
 @st.cache_data(ttl=300)
 def list_symbols():
     try:
@@ -227,6 +237,7 @@ with tabs[0]:
 
     # Essayer d'abord de consommer l'API pour les prédictions (recommandé)
     api_result = api_predict_symbol(sym_top)
+    api_status_payload = api_status(sym_top)
     bundle = None  # On ne chargera les modèles locaux qu'en fallback si nécessaire
 
     try:
@@ -242,15 +253,12 @@ with tabs[0]:
         col_reg, col_class = st.columns(2)
 
         with col_reg:
-            st.subheader("Régression (Estimation du Prix)")
-            st.markdown("📈 Estimer le prix de clôture à $t+1h$ (prochaine bougie).")
+            st.subheader("Régression (Variation Relative)")
+            st.markdown("📈 Estimer la variation en % du prix à $t+1h$ (prochaine bougie).")
             if api_result is not None:
                 try:
-                    y_next_pred = float(api_result["prediction"]["next_close_price"])  # via API
-                    abs_delta = y_next_pred - last_close
-                    pct_delta = (abs_delta / last_close * 100.0) if last_close else 0.0
-                    delta_str = f"{abs_delta:+.2f} ({pct_delta:+.2f}%) vs close(t)"
-                    st.metric("Prix prédit (t+1h)", f"{y_next_pred:,.2f}", delta=delta_str, delta_color="normal")
+                    pct_change_pred = float(api_result["prediction"]["next_close_pct_change"])  # via API
+                    st.metric("Variation prédite (t+1h)", f"{pct_change_pred:+.3f}%")
                 except Exception as e:
                     st.warning(f"Réponse API inattendue, bascule en local: {e}")
                     api_result = None  # force fallback
@@ -261,11 +269,8 @@ with tabs[0]:
                     st.warning("Artefacts (modèles ou listes de features) indisponibles pour la prédiction locale.")
                 else:
                     Xr = last_row[bundle["reg_feats"]]
-                    y_next_pred = float(bundle["reg_model"].predict(Xr)[0])
-                    abs_delta = y_next_pred - last_close
-                    pct_delta = (abs_delta / last_close * 100.0) if last_close else 0.0
-                    delta_str = f"{abs_delta:+.2f} ({pct_delta:+.2f}%) vs close(t)"
-                    st.metric("Prix prédit (t+1h)", f"{y_next_pred:,.2f}", delta=delta_str, delta_color="normal")
+                    pct_change_pred = float(bundle["reg_model"].predict(Xr)[0])
+                    st.metric("Variation prédite (t+1h)", f"{pct_change_pred:+.3f}%")
 
         with col_class:
             st.subheader("Classification (Direction)")
@@ -278,7 +283,7 @@ with tabs[0]:
                     pred_label = str(api_result["prediction"]["direction"])  # via API
                     st.metric("Classe prédite (t+1h)", pred_label)
                     # Probabilités si disponibles
-                    probs = api_result.get("details", {}).get("probabilities")
+                    probs = api_result.get("prediction", {}).get("probabilities")
                     if isinstance(probs, dict):
                         st.caption("Probabilités de classe (%):")
                         for lbl in ["Baisse", "Stable", "Hausse"]:
@@ -322,6 +327,28 @@ with tabs[0]:
                             st.progress(min(max(int(round(p * 100)), 0), 100), text=f"{lbl} – {p*100:.1f}%")
 
             st.caption("Classes réelles: 0=Baisse, 1=Stable, 2=Hausse")
+
+        st.write("---")
+        st.subheader("Modèle déployé (Champion) et Challenger")
+        deployment = (api_status_payload or {}).get("model_deployment") if api_status_payload else None
+        if deployment and isinstance(deployment, dict):
+            champion = deployment.get("deployed") or {}
+            challenger = deployment.get("last_candidate") or {}
+            cdep1, cdep2 = st.columns(2)
+            with cdep1:
+                st.markdown("**Champion déployé**")
+                st.write(f"- Regressor: {champion.get('regressor', 'n/a')}")
+                st.write(f"- Classifier: {champion.get('classifier', 'n/a')}")
+                st.write(f"- Trained at: {champion.get('trained_at', 'n/a')}")
+                st.write(f"- Score: {champion.get('score', 'n/a')}")
+            with cdep2:
+                st.markdown("**Dernier challenger**")
+                st.write(f"- Regressor: {challenger.get('regressor', 'n/a')}")
+                st.write(f"- Classifier: {challenger.get('classifier', 'n/a')}")
+                st.write(f"- Trained at: {challenger.get('trained_at', 'n/a')}")
+                st.write(f"- Score: {challenger.get('score', 'n/a')}")
+        else:
+            st.info("Aucun registre de déploiement trouvé. Le dernier modèle est utilisé par défaut.")
     except Exception as e:
         st.error(f"Prédiction indisponible: {e}")
 

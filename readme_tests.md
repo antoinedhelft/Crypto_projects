@@ -21,14 +21,14 @@ tests/
 │   ├── test_unitaire/
 │   │   └── test_dags_structure.py # Validation de la structure des DAGs
 │   ├── test_integration/
-│   │   └── test_airflow_execution.py # Tests d'exécution (placeholder)
+│   │   └── test_airflow_runtime_contracts.py # Contrats runtime des DAGs (DockerOperator, enchaînement)
 │   └── test_e2e/
-│       └── test_airflow_data_pipeline.py # Tests E2E de remplissage BDD
+│       └── __init__.py
 └── streamlit/
     ├── test_unitaire/
     │   └── test_streamlit_logic.py # Tests de logique Streamlit
     └── test_integration/
-        └── test_streamlit_app.py   # Tests d'intégration Streamlit (placeholder)
+        └── __init__.py
 ```
 
 ## Marqueurs pytest
@@ -64,34 +64,34 @@ Les tests sont organisés avec trois marqueurs principaux :
 ## Commandes Utiles
 
 ### Lancer tous les tests
-`pytest`
+`uv run pytest`
 
 ### Lancer uniquement les tests unitaires
-`pytest -v -m unitaire`
+`uv run pytest -v -m unitaire`
 
 ### Lancer uniquement les tests d'intégration
-`pytest -v -m integration`
+`uv run pytest -v -m integration`
 
 ### Lancer les tests d'un composant spécifique
 
 # API uniquement
-`pytest -v tests/api/`
+`uv run pytest -v tests/api/`
 
 # Airflow uniquement
-`pytest -v tests/airflow/`
+`uv run pytest -v tests/airflow/`
 
 # Streamlit uniquement
-`pytest -v tests/streamlit/`
+`uv run pytest -v tests/streamlit/`
 
 
 ### Lancer les tests avec rapport de couverture
-`pytest -v -m unitaire --cov=api --cov-report=term`
+`uv run pytest -v -m unitaire --cov=api --cov-report=term`
 
 ### Lancer les tests en mode verbeux avec traceback court
-`pytest -v --tb=short`
+`uv run pytest -v --tb=short`
 
 ### Lancer un test spécifique
-`pytest -v tests/api/test_unitaire/test_drift.py::test_psi_on_identical_distributions`
+`uv run pytest -v tests/api/test_unitaire/test_drift.py::test_psi_on_identical_distributions`
 
 ## Couverture des Tests
 
@@ -118,7 +118,12 @@ Les tests sont organisés avec trois marqueurs principaux :
 - Détection de cycles dans les dépendances
 
 #### Tests d'Intégration
-- À implémenter selon vos besoins
+- Validation des contrats runtime des DAGs:
+  - image Docker et commande du DAG de mise à jour horaire
+  - enchaînement des tâches du DAG de chargement initial
+
+#### Tests E2E
+- Aucun test E2E Airflow n'est actuellement implémenté
 
 ### Streamlit (`tests/streamlit/`)
 
@@ -148,13 +153,18 @@ markers =
 La pipeline CI (`.github/workflows/ci.yml`) exécute deux jobs :
 
 ### Job 1: Tests unitaires (obligatoire)
-- Installe les dépendances Python depuis `requirements_local.txt`
+- Installe les dépendances Python via `uv sync --group dev --group api --group data_pipeline --group ml_pipeline --group streamlit`
 - Exécute les suites unitaires API, Airflow et Streamlit
 - **Bloquant** : un échec fait échouer la CI
 
 ### Job 2: Tests d'intégration (optionnel)
-- Exécute les suites d'intégration API, Airflow et Streamlit
+- Exécute les suites d'intégration API et Streamlit
 - `continue-on-error: true` : utile pour observer les régressions sans bloquer un merge urgent
+
+### Job 3: Airflow integration contracts (optionnel)
+- Installe les dépendances Airflow via `uv sync --group dev --group airflow`
+- Exécute `tests/airflow/test_integration`
+- `continue-on-error: true` : utile pour surveiller les contrats DAGs sans bloquer un merge urgent
 
 ## Bonnes Pratiques
 
@@ -209,15 +219,15 @@ def client():
 ## Debugging
 
 ### Afficher les prints pendant les tests
-`pytest -v -s`
+`uv run pytest -v -s`
 
 ### Arrêter au premier échec
-`pytest -v -x`
+`uv run pytest -v -x`
 
 ### Lancer le débogueur sur échec
-`pytest -v --pdb`
+`uv run pytest -v --pdb`
 
 ### Voir les warnings
-`pytest -v --tb=short -W all`
+`uv run pytest -v --tb=short -W all`
 
 

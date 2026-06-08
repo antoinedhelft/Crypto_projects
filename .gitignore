@@ -23,3 +23,4 @@ db/
 old_tests/
 .github/workflows/old_ci.yml
 app_streamlit/app_save.py
+*~
