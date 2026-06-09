@@ -94,7 +94,7 @@ with DAG(
             "PYTHONUNBUFFERED":"1"
         },
         mounts=[Mount(source="models_data", target="/app/algo_crypto", type="volume")],
-        auto_remove=True
+        auto_remove="success"
     )
 
     mark_done = PythonOperator(

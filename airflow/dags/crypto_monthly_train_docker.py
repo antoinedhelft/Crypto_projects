@@ -85,7 +85,7 @@ with DAG(
         mounts=[
             Mount(source='models_data', target='/app/algo_crypto', type='volume')
         ],
-        auto_remove=True,
+        auto_remove="success",
         dag=dag,
     )
     gate >> train_models_task

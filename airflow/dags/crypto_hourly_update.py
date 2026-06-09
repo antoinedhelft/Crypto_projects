@@ -70,7 +70,7 @@ with DAG(
             "MODELS_DIR":"/app/algo_crypto"
         },
         mounts=[Mount(source="models_data", target="/app/algo_crypto", type="volume")],
-        auto_remove=True
+        auto_remove="success"
     )
 
     gate_initial_done >> update
