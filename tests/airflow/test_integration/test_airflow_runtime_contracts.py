@@ -44,7 +44,8 @@ def test_hourly_update_dag_uses_expected_docker_settings():
     dag_bag = DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
     assert len(dag_bag.import_errors) == 0, f"Erreurs d'import detectees: {dag_bag.import_errors}"
 
-    dag = dag_bag.get_dag("crypto_hourly_update")
+    # Lire le DAG directement depuis la collection chargee en memoire.
+    dag = dag_bag.dags.get("crypto_hourly_update")
     assert dag is not None, "Le DAG crypto_hourly_update doit exister"
 
     # Recuperer la tache Docker de mise a jour.
@@ -63,7 +64,8 @@ def test_initial_load_dag_task_order_is_gated():
     dag_bag = DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
     assert len(dag_bag.import_errors) == 0, f"Erreurs d'import detectees: {dag_bag.import_errors}"
 
-    dag = dag_bag.get_dag("crypto_initial_load")
+    # Lire le DAG directement depuis la collection chargee en memoire.
+    dag = dag_bag.dags.get("crypto_initial_load")
     assert dag is not None, "Le DAG crypto_initial_load doit exister"
 
     # Recuperer les taches principales du flux.
