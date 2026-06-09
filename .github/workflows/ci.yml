@@ -33,7 +33,7 @@ jobs:
   integration-tests:
     name: Integration tests (optional)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: false
 
     steps:
       - name: Checkout
@@ -56,7 +56,7 @@ jobs:
   airflow-integration-tests:
     name: Airflow integration contracts (optional)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: false
 
     steps:
       - name: Checkout
