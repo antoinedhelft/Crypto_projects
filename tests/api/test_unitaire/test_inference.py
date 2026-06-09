@@ -13,6 +13,7 @@ def test_latest_file(monkeypatch, tmp_path: Path):
     """
     Vérifie que `_latest_file` retourne bien le fichier le plus récent.
     """
+    # Utiliser un dossier temporaire pour eviter tout impact sur les vrais fichiers.
     # On fait pointer MODELS_DIR vers notre dossier temporaire
     monkeypatch.setattr(inference, "MODELS_DIR", tmp_path)
 
@@ -22,7 +23,9 @@ def test_latest_file(monkeypatch, tmp_path: Path):
     latest_file.touch()
     (tmp_path / "model_20251017_1100.joblib").touch()
 
+    # Lancer la recherche du fichier le plus recent.
     found_file = inference._latest_file("model_*.joblib")
+    # Verifier le resultat attendu.
     assert found_file == latest_file
 
 @pytest.mark.unitaire
@@ -30,8 +33,10 @@ def test_latest_file_returns_none_if_no_files(monkeypatch, tmp_path: Path):
     """
     Vérifie que `_latest_file` retourne None si aucun fichier ne correspond.
     """
+    # Aucun fichier ne correspond au pattern recherche.
     monkeypatch.setattr(inference, "MODELS_DIR", tmp_path)
     found_file = inference._latest_file("model_*.joblib")
+    # Le resultat doit etre vide.
     assert found_file is None
 
 @pytest.mark.unitaire
@@ -40,6 +45,7 @@ def test_load_model_is_cached(monkeypatch):
     Vérifie que la fonction `load_model` utilise bien un cache (functools.lru_cache)
     pour ne pas recharger le même modèle plusieurs fois.
     """
+    # Remplacer le chargement disque par un faux chargement observable.
     # Créer un mock pour joblib.load
     mock_joblib_load = MagicMock(return_value="fake_model")
     monkeypatch.setattr(inference.joblib, "load", mock_joblib_load)
@@ -47,11 +53,13 @@ def test_load_model_is_cached(monkeypatch):
     # Vider le cache de la fonction avant le test
     inference.load_model.cache_clear()
 
+    # Appeler deux fois avec le meme chemin.
     # Appeler la fonction plusieurs fois avec le même chemin
     path = Path("/fake/path/model.joblib")
     model1 = inference.load_model(path)
     model2 = inference.load_model(path)
 
+    # Verifier qu'un seul chargement reel a eu lieu grace au cache.
     # joblib.load ne doit avoir été appelé qu'une seule fois
     mock_joblib_load.assert_called_once_with(path)
     assert model1 == "fake_model"
@@ -62,6 +70,7 @@ def test_load_features_is_cached(monkeypatch, tmp_path):
     """
     Vérifie que la fonction `load_features` utilise également un cache.
     """
+    # Creer un fichier JSON de test.
     # Créer un fichier de features factice
     features_path = tmp_path / "features.json"
     features_path.write_text(json.dumps(["feat1", "feat2"]))
@@ -69,10 +78,12 @@ def test_load_features_is_cached(monkeypatch, tmp_path):
     # Vider le cache
     inference.load_features.cache_clear()
 
+    # Charger deux fois le meme fichier.
     # Appeler plusieurs fois
     feats1 = inference.load_features(features_path)
     feats2 = inference.load_features(features_path)
 
+    # Verifier que la seconde lecture reutilise le resultat en memoire.
     # Le fichier ne doit être lu qu'une fois. On ne peut pas directement mocker
     # `open`, mais on peut vérifier que l'objet retourné est le même.
     assert feats1 is feats2
@@ -82,6 +93,7 @@ def test_load_features_is_cached(monkeypatch, tmp_path):
 @pytest.mark.unitaire
 def test_normalize_symbol_accepts_common_input():
     """Les symboles doivent etre nettoyes puis valides avant usage."""
+    # Verifier le nettoyage (espaces + majuscules) puis la validation.
     assert inference._normalize_symbol(" btcusdt ") == "BTCUSDT"
     assert inference._normalize_symbol("eth123") == "ETH123"
 
@@ -89,6 +101,7 @@ def test_normalize_symbol_accepts_common_input():
 @pytest.mark.unitaire
 def test_normalize_symbol_rejects_invalid_values():
     """Les symboles incoherents doivent etre rejetes explicitement."""
+    # Verifier que les formats invalides provoquent une erreur.
     with pytest.raises(ValueError):
         inference._normalize_symbol("BTC/USDT")
     with pytest.raises(ValueError):
@@ -100,6 +113,7 @@ def test_normalize_symbol_rejects_invalid_values():
 @pytest.mark.unitaire
 def test_status_returns_operational_payload(monkeypatch):
     """L'endpoint status doit retourner version modele + metriques + date d'entrainement."""
+    # Remplacer les appels disque/BDD pour tester uniquement la forme de la reponse.
     class _FakePath:
         def __init__(self, name):
             self.name = name
@@ -120,7 +134,9 @@ def test_status_returns_operational_payload(monkeypatch):
     fake_df = pd.DataFrame([{"timestamp": "2026-01-01T00:00:00+00:00"}])
     monkeypatch.setattr(inference, "fetch_history", lambda symbol, hours=1: fake_df)
 
+    # Appeler la fonction de statut.
     payload = inference.status(symbol="BTCUSDT")
+    # Verifier les informations utiles exposees.
     assert payload["models"]["regressor"] == "reg.joblib"
     assert payload["models"]["classifier"] == "clf.joblib"
     assert payload["metrics"] is None

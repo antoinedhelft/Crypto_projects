@@ -27,6 +27,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://crypto:crypto@localhost:5
 @pytest.fixture(scope="module")
 def db_connection():
     """Connexion à la base de données PostgreSQL."""
+    # Reessayer la connexion pendant le demarrage des conteneurs.
     max_retries = 30
     for i in range(max_retries):
         try:
@@ -42,7 +43,9 @@ def db_connection():
 
 def test_api_health():
     """Vérifie que l'API est accessible."""
+    # Appeler l'endpoint.
     response = requests.get(f"{API_URL}/health")
+    # Verifier le resultat.
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
@@ -50,16 +53,19 @@ def test_api_health():
 
 def test_database_has_candles_data(db_connection):
     """Vérifie que la base de données contient des données de bougies."""
+    # Lancer une requete sur la paire de reference.
     cursor = db_connection.cursor()
     cursor.execute("SELECT COUNT(*) FROM candlestick JOIN pair ON candlestick.pair_id = pair.id WHERE symbol='BTCUSDT'")
     count = cursor.fetchone()[0]
     
+    # Verifier que la table metier contient bien des lignes.
     assert count > 0, "La table 'candlestick' devrait contenir des données pour BTCUSDT"
     print(f"✅ La BDD contient {count} bougies pour BTCUSDT")
 
 
 def test_database_has_recent_data(db_connection):
     """Vérifie que les données sont récentes (moins de 24h)."""
+    # Recuperer la date de la derniere bougie.
     cursor = db_connection.cursor()
     cursor.execute("""
         SELECT MAX(open_datetime) 
@@ -71,7 +77,7 @@ def test_database_has_recent_data(db_connection):
     
     assert latest_timestamp is not None, "Aucune donnée trouvée dans la table 'candlestick'"
     
-    # Vérifier que la donnée la plus récente date de moins de 24h
+    # Verifier que la donnee est suffisamment recente (<24h).
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
     time_diff = now - latest_timestamp
@@ -84,13 +90,14 @@ def test_database_has_recent_data(db_connection):
 
 def test_predict_endpoint_with_real_data():
     """Teste l'endpoint /predict/{symbol} avec les données réelles de la BDD."""
+    # Appeler l'endpoint de prediction.
     response = requests.get(f"{API_URL}/predict/BTCUSDT", timeout=30)
     
     assert response.status_code == 200, f"L'API a retourné une erreur : {response.text}"
     
     data = response.json()
     
-    # Vérifier la structure de la réponse
+    # Verifier que la reponse contient les champs attendus.
     assert "symbol" in data
     assert data["symbol"] == "BTCUSDT"
     
@@ -112,9 +119,11 @@ def test_predict_endpoint_with_real_data():
 
 def test_status_endpoint_returns_models_and_freshness():
     """Vérifie que l'endpoint /status retourne les modèles et la fraîcheur des données."""
+    # Appeler l'endpoint.
     response = requests.get(f"{API_URL}/status")
     assert response.status_code == 200
 
+    # Verifier les champs importants.
     data = response.json()
     assert "models" in data
     assert data["models"]["regressor"]
@@ -124,6 +133,7 @@ def test_status_endpoint_returns_models_and_freshness():
 
 def test_predict_multiple_symbols(db_connection):
     """Teste les prédictions pour tous les symboles présents dans la BDD."""
+    # Lire tous les symboles disponibles.
     cursor = db_connection.cursor()
     cursor.execute("SELECT DISTINCT symbol FROM candlestick JOIN pair ON candlestick.pair_id = pair.id ORDER BY symbol")
     symbols = [row[0] for row in cursor.fetchall()]
@@ -132,6 +142,7 @@ def test_predict_multiple_symbols(db_connection):
     
     print(f"\n📊 Test de prédiction pour {len(symbols)} symboles...")
     
+    # Tester la prediction sur chaque symbole.
     successful_predictions = 0
     for symbol in symbols:
         try:
@@ -145,7 +156,7 @@ def test_predict_multiple_symbols(db_connection):
         except Exception as e:
             print(f"  ❌ {symbol}: {e}")
     
-    # Au moins 50% des symboles devraient avoir des prédictions valides
+    # Verifier qu'une proportion minimale des predictions reussit.
     success_rate = successful_predictions / len(symbols)
     assert success_rate >= 0.5, \
         f"Seulement {successful_predictions}/{len(symbols)} prédictions ont réussi"

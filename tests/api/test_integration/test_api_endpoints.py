@@ -1,6 +1,6 @@
 """Tests d'integration des endpoints HTTP de l'API.
 
-Ces tests verifient les contrats HTTP des routes exposees, sans dependre
+Ces tests verifient le format attendu des reponses API, sans dependre
 ni d'une base reelle ni des artefacts modeles, grace au monkeypatch.
 """
 
@@ -15,7 +15,9 @@ from api import inference
 @pytest.mark.integration
 def test_health_endpoint(client):
     """L'endpoint /health doit etre accessible."""
+    # Appeler l'endpoint.
     response = client.get("/health")
+    # Verifier le resultat.
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
 
@@ -24,6 +26,7 @@ def test_health_endpoint(client):
 def test_status_endpoint(client, monkeypatch):
     """L'endpoint /status doit renvoyer une charge utile operationnelle."""
 
+    # Remplacer les appels externes par des valeurs fixes pour un test fiable.
     class _FakePath:
         def __init__(self, name):
             self.name = name
@@ -61,7 +64,9 @@ def test_status_endpoint(client, monkeypatch):
         },
     )
 
+    # Appeler l'endpoint.
     response = client.get("/status?symbol=BTCUSDT")
+    # Verifier que les champs importants sont presents et corrects.
     assert response.status_code == 200
     data = response.json()
     assert data["models"]["regressor"] == "reg.joblib"
@@ -75,9 +80,12 @@ def test_status_endpoint(client, monkeypatch):
 @pytest.mark.integration
 def test_available_symbols_endpoint(client, monkeypatch):
     """L'endpoint /symbols doit exposer les paires disponibles dans la base."""
+    # Simuler une liste de symboles disponible.
     monkeypatch.setattr(inference, "list_available_symbols", lambda: ["BTCUSDT", "ETHUSDT"])
 
+    # Appeler l'endpoint.
     response = client.get("/symbols")
+    # Verifier le contenu retourne.
     assert response.status_code == 200
     data = response.json()
     assert data["symbols"] == ["BTCUSDT", "ETHUSDT"]
@@ -87,6 +95,7 @@ def test_available_symbols_endpoint(client, monkeypatch):
 @pytest.mark.integration
 def test_predict_symbol_endpoint(client, monkeypatch):
     """GET /predict/{symbol} doit utiliser la logique _predict_one."""
+    # Remplacer le calcul reel par une reponse de prediction simple.
     monkeypatch.setattr(
         inference,
         "_predict_one",
@@ -104,7 +113,9 @@ def test_predict_symbol_endpoint(client, monkeypatch):
         },
     )
 
+    # Appeler l'endpoint.
     response = client.get("/predict/BTCUSDT")
+    # Verifier la reponse.
     assert response.status_code == 200
     assert response.json()["symbol"] == "BTCUSDT"
     assert response.json()["prediction"]["direction"] == "Hausse"
@@ -114,6 +125,7 @@ def test_predict_symbol_endpoint(client, monkeypatch):
 def test_predict_batch_endpoint_partial_errors(client, monkeypatch):
     """POST /predict/batch doit retourner predictions + errors en cas d'echec partiel."""
 
+    # Simuler un cas mixte: un symbole valide et un symbole en erreur.
     def _fake_predict(symbol):
         if symbol == "BAD":
             raise ValueError("unknown symbol")
@@ -132,7 +144,9 @@ def test_predict_batch_endpoint_partial_errors(client, monkeypatch):
 
     monkeypatch.setattr(inference, "_predict_one", _fake_predict)
 
+    # Appeler l'endpoint.
     response = client.post("/predict/batch", json={"symbols": ["BTCUSDT", "BAD"]})
+    # Verifier que la reponse contient a la fois succes et erreurs.
     assert response.status_code == 200
     data = response.json()
     assert len(data["predictions"]) == 1
@@ -144,9 +158,12 @@ def test_predict_batch_endpoint_partial_errors(client, monkeypatch):
 @pytest.mark.integration
 def test_predict_batch_endpoint_validates_inputs(client, monkeypatch):
     """Les symboles invalides doivent etre rejetes clairement."""
+    # Simuler une prediction minimale.
     monkeypatch.setattr(inference, "_predict_one", lambda symbol: {"symbol": symbol})
 
+    # Appeler l'endpoint.
     response = client.post("/predict/batch", json={"symbols": ["BTC/USDT", "btc usdt", "BTCUSDT"]})
+    # Verifier que les entrees invalides sont bien listees en erreur.
     assert response.status_code == 200
     data = response.json()
     assert len(data["predictions"]) == 1

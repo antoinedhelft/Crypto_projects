@@ -34,12 +34,13 @@ def test_dags_load_without_errors():
     Vérifie que tous les DAGs présents dans airflow/dags peuvent être importés
     sans erreurs de syntaxe ou d'import.
     """
+    # Charger tous les DAGs du dossier cible.
     dag_bag = DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
     
-    # Vérifier qu'il n'y a pas d'erreurs d'import
+    # Verifier qu'il n'y a pas d'erreur d'import.
     assert len(dag_bag.import_errors) == 0, f"Erreurs d'import détectées: {dag_bag.import_errors}"
     
-    # Vérifier qu'au moins un DAG a été trouvé
+    # Verifier qu'au moins un DAG est detecte.
     assert len(dag_bag.dags) > 0, "Aucun DAG trouvé dans airflow/dags"
 
 
@@ -50,17 +51,18 @@ def test_dags_have_required_attributes():
     """
     Vérifie que chaque DAG a les attributs essentiels définis.
     """
+    # Charger tous les DAGs.
     dag_bag = DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
     
     for dag_id, dag in dag_bag.dags.items():
-        # Chaque DAG doit avoir un owner
+        # Verifier que l'owner est renseigne.
         assert dag.owner is not None, f"Le DAG '{dag_id}' n'a pas d'owner défini"
         
-        # Chaque DAG doit avoir une description
+        # Verifier que la description n'est pas vide.
         assert dag.description is not None and len(dag.description) > 0, \
             f"Le DAG '{dag_id}' n'a pas de description"
         
-        # Chaque DAG doit avoir au moins une tâche
+        # Verifier qu'il y a au moins une tache.
         assert len(dag.tasks) > 0, f"Le DAG '{dag_id}' n'a aucune tâche"
 
 
@@ -71,16 +73,18 @@ def test_dags_have_no_cycles():
     """
     Vérifie qu'aucun DAG ne contient de cycle (dépendances circulaires).
     """
+    # Importer l'exception dediee aux cycles de DAG.
     from airflow.exceptions import AirflowDagCycleException
     
     dag_bag = DagBag(dag_folder=str(DAGS_DIR), include_examples=False)
     
+    # Verifier la coherence des dependances pour chaque DAG.
     for dag_id, dag in dag_bag.dags.items():
         # Airflow 2.x : la validation des cycles se fait automatiquement au chargement
         # On vérifie simplement qu'aucune exception de cycle n'est présente dans import_errors
         # Et que le DAG a bien des tâches avec des dépendances valides
         try:
-            # Vérifie que toutes les dépendances sont résolvables
+            # Vérifie que toutes les dépendances sont résolvables.
             for task in dag.tasks:
                 _ = task.upstream_list
                 _ = task.downstream_list
