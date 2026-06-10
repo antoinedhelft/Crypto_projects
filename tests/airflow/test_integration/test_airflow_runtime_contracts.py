@@ -20,6 +20,9 @@ if os.name != "nt":
     os.environ.setdefault("AIRFLOW_HOME", str(AIRFLOW_TEST_HOME))
     os.environ.setdefault("AIRFLOW__CORE__LOAD_EXAMPLES", "False")
     os.environ.setdefault("AIRFLOW__DATABASE__SQL_ALCHEMY_CONN", f"sqlite:///{AIRFLOW_TEST_DB.as_posix()}")
+    # Necessaire uniquement pour le parsing des DAGs en CI.
+    # Aucune connexion reelle n'est faite vers cette URL dans ces tests.
+    os.environ.setdefault("DATABASE_URL", os.environ.get("TEST_DATABASE_URL", "__CI_TEST_DATABASE_URL__"))
 
     try:
         from airflow.models import DagBag
