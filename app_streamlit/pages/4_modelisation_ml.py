@@ -601,15 +601,17 @@ with tabs[3]:
             df = load_candles(sym, years=years_need)
             dfl = df[df["timestamp"] >= (pd.Timestamp.utcnow() - pd.DateOffset(months=months_eval))]
             dff = compute_features(dfl).dropna().reset_index(drop=True)
-            # Prédictions régression
+            # Le modele de regression predit une variation en pourcentage.
+            # Conversion en prix predit pour comparer des grandeurs homogenes.
             Xr = align_model_features(dff, bundle["reg_feats"])
             yr_true = dff["target_price"].to_numpy()
-            yr_pred = bundle["reg_model"].predict(Xr)
             y_base = dff["close_price"].to_numpy()
+            yr_pred_pct = bundle["reg_model"].predict(Xr)
+            yr_pred = y_base * (1.0 + (yr_pred_pct / 100.0))
             # Overlay séries
             fig1 = go.Figure()
             fig1.add_trace(go.Scatter(x=dff["timestamp"], y=yr_true, name="Prix (t+1)", mode="lines"))
-            fig1.add_trace(go.Scatter(x=dff["timestamp"], y=yr_pred, name="Prédit", mode="lines"))
+            fig1.add_trace(go.Scatter(x=dff["timestamp"], y=yr_pred, name="Prix predit (depuis %)", mode="lines"))
             fig1.add_trace(go.Scatter(x=dff["timestamp"], y=y_base, name="Baseline (persistance)", mode="lines", line=dict(dash="dot")))
             fig1.update_layout(height=380, title=f"{sym} – Réel (t+1) vs Prédit vs Baseline")
             st.plotly_chart(fig1, use_container_width=True)
@@ -623,7 +625,7 @@ with tabs[3]:
             m2.metric("RMSE (modèle)", f"{rmse:.2f}")
             m3.metric("MAE (baseline)", f"{mae_base:.2f}", f"Δ {(mae_base-mae)/mae_base*100:.1f}%")
             m4.metric("RMSE (baseline)", f"{rmse_base:.2f}", f"Δ {(rmse_base-rmse)/rmse_base*100:.1f}%")
-            st.caption("Baseline = dernier close. Δ = amélioration relative vs baseline.")
+            st.caption("Le modele predit d'abord une variation %, convertie ici en prix predit pour une comparaison prix vs prix.")
             # MAE roulante
             err_model = np.abs(yr_true - yr_pred)
             err_base = np.abs(yr_true - y_base)
