@@ -12,11 +12,11 @@ NETWORK = "juil25-bde-crypto-main_default"
 
 
 def _db_url() -> str:
-    # Réutilise l'environnement défini sur airflow par docker-compose
-    return os.getenv(
-        "DATABASE_URL",
-        "postgresql+psycopg2://crypto:crypto@postgres:5432/crypto_trading",
-    )
+    # Réutilise l'environnement injecte par docker-compose depuis le fichier .env.
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL doit etre defini dans l'environnement Airflow")
+    return database_url
 
 
 def _postgres_ready() -> bool:
@@ -90,8 +90,8 @@ with DAG(
         network_mode=NETWORK,
         mount_tmp_dir=False,
         environment={
-            "DATABASE_URL":"postgresql+psycopg2://crypto:crypto@postgres:5432/crypto_trading",
-            "PYTHONUNBUFFERED":"1"
+            "DATABASE_URL": _db_url(),
+            "PYTHONUNBUFFERED": "1",
         },
         mounts=[Mount(source="models_data", target="/app/algo_crypto", type="volume")],
         auto_remove="success"

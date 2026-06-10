@@ -9,6 +9,13 @@ from docker.types import Mount
 
 NETWORK = "juil25-bde-crypto-main_default"
 
+
+def _db_url() -> str:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL doit etre defini dans l'environnement Airflow")
+    return database_url
+
 def _should_train() -> bool:
     """Décide si le job de training doit s'exécuter.
 
@@ -78,9 +85,9 @@ with DAG(
         force_pull=False,
         mount_tmp_dir=False,
         environment={
-            'DATABASE_URL': 'postgresql+psycopg2://crypto:crypto@postgres:5432/crypto_trading',
+            'DATABASE_URL': _db_url(),
             'PYTHONPATH': '/app',
-            'MODELS_DIR': '/app/algo_crypto'
+            'MODELS_DIR': os.environ.get('MODELS_DIR', '/app/algo_crypto')
         },
         mounts=[
             Mount(source='models_data', target='/app/algo_crypto', type='volume')
