@@ -1,90 +1,51 @@
 import streamlit as st
 
-st.set_page_config(page_title="2 - Exploration & manipulation des données", layout="wide")
+st.set_page_config(page_title="2 - Donnees", layout="wide")
 
-st.title("2️⃣ Exploration et manipulation des données")
+st.title("2️⃣ Donnees et preparation")
 
-tabs = st.tabs([
-    "2.1 Sources de données (Binance REST, WebSocket, Data Portal)",
-    "2.2 Périmètre retenu & jeux de données",
-    "2.3 Volumétrie & caractéristiques",
-    "2.4 Variables pertinentes & cibles",
-    "2.5 Prétraitements & feature engineering",
-])
+st.markdown("Vue rapide du perimetre data utilise pour la demo.")
 
-with tabs[0]:
-    st.header("2.1 Sources de données identifiées (Binance REST API, WebSocket, Data Portal)")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Source", "Binance API")
+c2.metric("Granularite", "1h")
+c3.metric("Donnees", "OHLCV")
+c4.metric("Univers", "Top paires actives")
 
+st.markdown("---")
+
+tab1, tab2, tab3 = st.tabs(["Perimetre", "Variables", "Qualite data"])
+
+with tab1:
+    st.subheader("Perimetre retenu")
     st.markdown(
-    """
-    
-    - 📡 **Binance REST API** → données historiques OHLCV  
-    - 🔄 **Binance WebSocket API** → données temps réel  
-    - 📁 **Binance Data Portal** → historiques CSV publics   
-    """)
+        """
+- Marche spot (ex: BTCUSDT, ETHUSDT).
+- Historique exploite pour features et apprentissage.
+- Mise a jour automatique des bougies.
+        """
+    )
 
-with tabs[1]:
-    st.header("2.2 Périmètre retenu et jeux de données utilisés")
-
+with tab2:
+    st.subheader("Variables principales")
     st.markdown(
-    """
-    
-    - 🪙 Marché **spot Binance** (BTC/USDT, ETH/USDT, etc.)  
-    - ⏱️ Intervalle temporel : **1h**  
-    - 📊 Données : OHLCV (Open, High, Low, Close, Volume)  
-    - 🤖 Sélection dynamique des **3 cryptos avec le plus de volume**  
-  
-    """)
+        """
+- Prix: open, high, low, close.
+- Volumes: volume_base, volume_quote.
+- Features derivees: lags, RSI, MACD, ATR, variables temporelles.
+- Cibles: variation t+1h et direction (Baisse/Stable/Hausse).
+        """
+    )
 
-with tabs[2]:
-    st.header("2.3 Volumétrie et caractéristiques des données")
-
+with tab3:
+    st.subheader("Points de controle qualite")
     st.markdown(
-    """
-    
-    ✅ Points clés à afficher :
-    - ⏱️ 8 760 lignes/an (1 ligne par heure)  
-    - 📈 35 040 lignes pour 4 ans par paire  
-    - 💾 ~20 à 30 Mo pour 3–4 paires sur 4 ans  
-    - 🧩 Données tabulaires structurées : timestamps, prix, volumes, trades   
-    """)
+        """
+- Fraicheur des dernieres bougies.
+- Types et formats de colonnes.
+- Detection des trous et doublons critiques.
+- Verification de coherence avant prediction.
+        """
+    )
 
-with tabs[3]:
-    st.header("2.4 Variables pertinentes et variable(s) cible(s)")
-
-    st.markdown(
-    """
-    
-    Les principales variables exploitées sont :
-
-    🕒 Temporelle
-    - open_time, close_time
-    - Début et fin de la période
-
-    💰 Marché
-    - open, high, low, close
-    - Prix d’ouverture, haut, bas et fermeture
-
-    📊 Activité
-    - volume, number_of_trades
-    - Volume échangé et nombre de transactions
-
-💵 Takers
-    - taker_buy_base_volume, taker_buy_quote_volume
-    - Volumes achetés par les acteurs du marché
-   
-    """)
-
-with tabs[4]:
-    st.header("2.5 Prétraitements et feature engineering (nettoyage, normalisation, enrichissement)")
-
-    st.markdown(
-    """
-    
-    ### ✅ Points clés à afficher :
-    - ✅ Données Binance déjà propres et exploitables  
-    - 🕒 Conversion des timestamps → `datetime`  
-    - 🔍 Vérification doublons / types / cohérence   
-    """)
-
-st.caption("Page 2 – Exploration des données")
+st.caption("Page 2 - Focus donnees pour demo")

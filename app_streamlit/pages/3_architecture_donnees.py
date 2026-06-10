@@ -1,37 +1,47 @@
 import streamlit as st
 from pathlib import Path
 
-st.set_page_config(page_title="3 - Architecture & organisation des données", layout="wide")
+st.set_page_config(page_title="3 - Architecture", layout="wide")
 
-st.title("3️⃣ Architecture et organisation des données")
+st.title("3️⃣ Architecture data")
 
-tabs = st.tabs([
-    "3.1 Choix base relationnelle (SQL vs NoSQL)",
-    "3.2 Schéma UML & tables (markets, pairs, candlesticks, trades, crypto, exchange)",
-    
-])
+st.markdown("Architecture simplifiee du pipeline, orientee exploitation.")
 
-with tabs[0]:
-    st.header("3.1 Choix d’une base relationnelle (SQL vs NoSQL – justification)")
+c1, c2, c3 = st.columns(3)
+c1.metric("Stockage", "PostgreSQL")
+c2.metric("Orchestration", "Airflow")
+c3.metric("Exposition", "FastAPI")
 
-    root_dir = Path(__file__).parents[1]
-    img_path = root_dir / "images"
+st.markdown("---")
 
-    # Centrer l'image avec des colonnes Streamlit
-    col_l,col_c, col_r = st.columns([1, 2, 1])
-    with col_c:
-        st.image(str(img_path / "choixsql.png"), width=1000)
+left, right = st.columns([1, 1])
 
-with tabs[1]:
-    st.header("3.2 Schéma UML et explication des tables (markets, pairs, candlesticks, trades, crypto, exchange)")
+with left:
+    st.subheader("Choix techniques")
+    st.markdown(
+        """
+- Base relationnelle pour garantir coherence et requetabilite.
+- Pipeline conteneurise pour reproductibilite.
+- Separation ingestion / entrainement / serving.
+        """
+    )
 
-    root_dir = Path(__file__).parents[1]
-    img_path = root_dir / "images"
+with right:
+    st.subheader("Flux de donnees")
+    st.markdown(
+        """
+1. Ingestion des bougies.
+2. Stockage et historisation SQL.
+3. Feature engineering.
+4. Entrainement et selection de modele.
+5. Prediction via API et visualisation Streamlit.
+        """
+    )
 
-    # Centrer l'image avec des colonnes Streamlit
-    col_l,col_c, col_r = st.columns([1, 2, 1])
-    with col_c:
-        st.image(str(img_path / "uml.png"), width=1000)
+root_dir = Path(__file__).parents[1]
+img_path = root_dir / "images"
+col_l, col_c, col_r = st.columns([1, 2, 1])
+with col_c:
+    st.image(str(img_path / "uml.png"), width=900)
 
-
-st.caption("Page 3 – Architecture & data")
+st.caption("Page 3 - Architecture courte pour demo")

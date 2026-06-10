@@ -127,11 +127,39 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
         (df["low_price"] - prev_close).abs()
     ], axis=1).max(axis=1)
     df["atr"] = tr.rolling(14, min_periods=7).mean()
+    # Feature parfois attendue par les artefacts existants.
+    df["atr_pct"] = (df["atr"] / df["close_price"].replace(0, np.nan)) * 100.0
     ts = pd.to_datetime(df["timestamp"])
     df["hour_of_day"] = ts.dt.hour
     df["day_of_week"] = ts.dt.dayofweek
+    # Valeur par defaut si la feature categorielle n'est pas recalculable ici.
+    df["symbol_cat"] = 0.0
     df["target_price"] = df["close_price"].shift(-1)
     return df
+
+
+def align_model_features(df: pd.DataFrame, feature_names: list[str]) -> pd.DataFrame:
+    """Construit une matrice X compatible avec les features attendues par le modele.
+
+    Si certaines colonnes n'existent pas dans le DataFrame courant, on les cree
+    avec des valeurs neutres pour eviter les erreurs bloquantes en demo.
+    """
+    x = df.copy()
+
+    if "symbol_cat" in feature_names and "symbol_cat" not in x.columns:
+        x["symbol_cat"] = 0.0
+
+    if "atr_pct" in feature_names and "atr_pct" not in x.columns:
+        if "atr" in x.columns and "close_price" in x.columns:
+            x["atr_pct"] = (x["atr"] / x["close_price"].replace(0, np.nan)) * 100.0
+        else:
+            x["atr_pct"] = 0.0
+
+    for col in feature_names:
+        if col not in x.columns:
+            x[col] = 0.0
+
+    return x[feature_names].replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
 def list_latest_artifacts():
     reg_m = sorted(ALGO_DIR.glob("crypto_regressor_lgbm_*.joblib"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -268,7 +296,7 @@ with tabs[0]:
                 if not bundle:
                     st.warning("Artefacts (modèles ou listes de features) indisponibles pour la prédiction locale.")
                 else:
-                    Xr = last_row[bundle["reg_feats"]]
+                    Xr = align_model_features(last_row, bundle["reg_feats"])
                     pct_change_pred = float(bundle["reg_model"].predict(Xr)[0])
                     st.metric("Variation prédite (t+1h)", f"{pct_change_pred:+.3f}%")
 
@@ -300,7 +328,7 @@ with tabs[0]:
                 if not bundle:
                     st.warning("Artefacts manquants pour la prédiction locale.")
                 else:
-                    Xc = last_row[bundle["clf_feats"]]
+                    Xc = align_model_features(last_row, bundle["clf_feats"])
                     clf_model = bundle["clf_model"]
                     raw_pred = clf_model.predict(Xc)[0]
                     try:
@@ -574,7 +602,7 @@ with tabs[3]:
             dfl = df[df["timestamp"] >= (pd.Timestamp.utcnow() - pd.DateOffset(months=months_eval))]
             dff = compute_features(dfl).dropna().reset_index(drop=True)
             # Prédictions régression
-            Xr = dff[bundle["reg_feats"]]
+            Xr = align_model_features(dff, bundle["reg_feats"])
             yr_true = dff["target_price"].to_numpy()
             yr_pred = bundle["reg_model"].predict(Xr)
             y_base = dff["close_price"].to_numpy()
@@ -638,7 +666,7 @@ with tabs[3]:
                 dfl = df[df["timestamp"] >= (pd.Timestamp.utcnow() - pd.DateOffset(months=months_eval_bt))]
                 dff = compute_features(dfl).dropna().reset_index(drop=True)
                 # Prédire classes
-                Xc = dff[bundle["clf_feats"]]
+                Xc = align_model_features(dff, bundle["clf_feats"])
                 raw_pred = bundle["clf_model"].predict(Xc)
                 # Convertir en natifs
                 preds_idx = [int(getattr(v, 'item', lambda: v)()) if hasattr(v, 'item') else int(v) for v in raw_pred]
