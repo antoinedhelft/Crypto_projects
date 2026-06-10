@@ -45,16 +45,24 @@ uv sync --group dev --group api --group data_pipeline --group ml_pipeline --grou
 
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(64))"
-
-- Pour obtenir la clé Fernet à mettre dans .env :
-docker compose run --rm airflow-webserver python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 ```
+
+- La 2e commande génère une clé Fernet valide (à mettre dans `.env`) sans dépendre de `cryptography` en local.
+- Alternative : `docker compose run --rm airflow-webserver python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+- `docker compose run` peut être exécuté avant `docker compose up` : il lance un conteneur éphémère juste pour la commande.
 
 5. Construisez les images et démarrez la stack :
 
 ```powershell
-docker compose --profile images build
+docker compose --profile images build --pull
 docker compose up -d --build
+```
+
+En cas de souci de cache Docker sur les images Airflow/uv :
+
+```powershell
+docker compose build --no-cache --pull airflow-init airflow-webserver airflow-scheduler
 ```
 
 ## Accès aux services
