@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.operators.python import PythonOperator, ShortCircuitOperator
@@ -7,6 +7,8 @@ from airflow.sensors.python import PythonSensor
 from airflow.models import Variable
 from sqlalchemy import create_engine, text
 from docker.types import Mount
+
+from _alerts import slack_failure_alert
 
 NETWORK = "juil25-bde-crypto-main_default"
 
@@ -66,6 +68,12 @@ with DAG(
     start_date=datetime(2025, 1, 1),
     schedule_interval="@once",  # Se déclenche automatiquement au premier lancement du DAG
     catchup=False,
+    default_args={
+        "owner": "crypto",
+        "retries": 1,
+        "retry_delay": timedelta(minutes=2),
+        "on_failure_callback": slack_failure_alert,
+    },
     is_paused_upon_creation=False,
 ) as dag:
     wait_for_postgres = PythonSensor(

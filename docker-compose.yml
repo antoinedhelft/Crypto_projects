@@ -40,6 +40,7 @@ services:
       #AIRFLOW__WEBSERVER__BASE_URL: http://airflow-webserver:8080
       MODELS_DIR: /app/algo_crypto
       DATABASE_URL: postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     volumes:
@@ -65,6 +66,7 @@ services:
       #AIRFLOW__WEBSERVER__BASE_URL: http://airflow-webserver:8080
       MODELS_DIR: /app/algo_crypto
       DATABASE_URL: postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     volumes:

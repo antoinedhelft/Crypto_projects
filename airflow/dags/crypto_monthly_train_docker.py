@@ -1,11 +1,13 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.operators.python import ShortCircuitOperator, get_current_context
 from airflow.models import Variable
 from docker.types import Mount
+
+from _alerts import slack_failure_alert
 
 NETWORK = "juil25-bde-crypto-main_default"
 
@@ -68,7 +70,12 @@ with DAG(
     schedule_interval="0 0 1 * *", # Check horaire: lance le 1er du mois OU si aucun modèle n'existe
     catchup=False,
     max_active_runs=1,
-    default_args={"owner":"crypto","retries":1},
+    default_args={
+        "owner": "crypto",
+        "retries": 1,
+        "retry_delay": timedelta(minutes=2),
+        "on_failure_callback": slack_failure_alert,
+    },
     is_paused_upon_creation=False,
 ) as dag:
     gate = ShortCircuitOperator(

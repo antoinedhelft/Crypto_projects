@@ -1,11 +1,13 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.operators.python import ShortCircuitOperator
 from airflow.models import Variable
 from docker.types import Mount
 from sqlalchemy import create_engine, text
+
+from _alerts import slack_failure_alert
 
 NETWORK = "juil25-bde-crypto-main_default"
 
@@ -48,7 +50,12 @@ with DAG(
     schedule_interval="0 * * * *",
     catchup=False,
     max_active_runs=1,
-    default_args={"owner":"crypto","retries":1},
+    default_args={
+        "owner": "crypto",
+        "retries": 1,
+        "retry_delay": timedelta(minutes=5),
+        "on_failure_callback": slack_failure_alert,
+    },
     is_paused_upon_creation=False,
 ) as dag:
     gate_initial_done = ShortCircuitOperator(
