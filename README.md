@@ -45,24 +45,43 @@ uv sync --group dev --group api --group data_pipeline --group ml_pipeline --grou
 
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(64))"
-python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+docker compose run --rm airflow-webserver python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-- La 2e commande génère une clé Fernet valide (à mettre dans `.env`) sans dépendre de `cryptography` en local.
-- Alternative : `docker compose run --rm airflow-webserver python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
-- `docker compose run` peut être exécuté avant `docker compose up` : il lance un conteneur éphémère juste pour la commande.
+- La première commande génère une valeur pour `AIRFLOW_SECRET_KEY`.
+- La deuxième commande génère une clé valide pour `AIRFLOW_FERNET_KEY`.
+
+### Alertes Slack Airflow (optionnel)
+
+Pour recevoir une alerte Slack si un DAG échoue apres epuisement des retries :
+
+1. Ouvrez `https://api.slack.com/apps`.
+2. Créez une app Slack (`Create New App` puis `From scratch`).
+3. Dans l'app, ouvrez `Incoming Webhooks` et activez `Activate Incoming Webhooks`.
+4. Cliquez sur `Add New Webhook to Workspace`, choisissez un canal, puis validez.
+5. Copiez l'URL generee (format `https://hooks.slack.com/services/...`).
+6. Ajoutez-la dans votre `.env` :
+
+```env
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+```
+
+7. Rechargez les services Airflow pour prendre la variable en compte :
+
+```powershell
+docker compose up -d --force-recreate airflow-webserver airflow-scheduler
+```
+
+Notes :
+- Le webhook est un secret, ne le commitez jamais.
+- Si la valeur est vide ou absente, aucune alerte Slack n'est envoyee.
+
 
 5. Construisez les images et démarrez la stack :
 
 ```powershell
-docker compose --profile images build --pull
+docker compose --profile images build
 docker compose up -d --build
-```
-
-En cas de souci de cache Docker sur les images Airflow/uv :
-
-```powershell
-docker compose build --no-cache --pull airflow-init airflow-webserver airflow-scheduler
 ```
 
 ## Accès aux services
