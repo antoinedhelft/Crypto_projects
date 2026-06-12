@@ -1,4 +1,6 @@
 import os
+import sys
+from pathlib import Path
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
@@ -8,6 +10,8 @@ from airflow.models import Variable
 from sqlalchemy import create_engine, text
 from docker.types import Mount
 
+# DagBag import en CI: garantit que le dossier des DAGs est resolvable pour _alerts.py.
+sys.path.append(str(Path(__file__).resolve().parent))
 from _alerts import slack_failure_alert
 
 NETWORK = "juil25-bde-crypto-main_default"
