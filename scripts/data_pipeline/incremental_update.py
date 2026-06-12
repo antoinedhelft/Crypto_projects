@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 from .db_utils import SessionLocal, init_db, engine  
 from .models import Pair, Candlestick as Candle, Exchange, Crypto  
 
+# Ce script fait la mise a jour horaire de la table candlestick:
+# 1) selection des paires a traiter
+# 2) recuperation des bougies Binance (initiale ou incrementale)
+# 3) validation des lignes avant insertion
+# 4) generation d'un rapport de qualite des donnees
 
 YEARS = 4
 TOP_N = 3
@@ -26,6 +31,7 @@ MODELS_DIR = Path(os.getenv("MODELS_DIR", str(PROJECT_ROOT / "algo_crypto")))
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 def log(msg: str):
+    """Affiche un message horodate pour faciliter le debug en production."""
     print(f"[{datetime.now().isoformat()}] {msg}")
 
 def get_top_symbols(limit=TOP_N):
@@ -69,6 +75,7 @@ def get_top_symbols(limit=TOP_N):
     return selected
 
 def ensure_exchange_and_quote(db: Session):
+    """Cree (si besoin) les references Exchange/Crypto minimales utilisees par les paires."""
     exch = db.execute(select(Exchange).where(Exchange.name=="Binance")).scalar_one_or_none()
     if not exch:
         exch = Exchange(name="Binance")
@@ -81,6 +88,7 @@ def ensure_exchange_and_quote(db: Session):
     return exch.id
 
 def ensure_pair(db: Session, exchange_id: int, symbol: str):
+    """Cree (si absente) la paire exchange+symbol et retourne son pair_id."""
     base_sym = symbol[:-4]
     base_crypto = db.execute(select(Crypto).where(Crypto.symbol==base_sym)).scalar_one_or_none()
     if not base_crypto:
@@ -132,6 +140,7 @@ def has_four_years_history_cached(db: Session, pair_id: int, symbol: str):
     return eo <= required_date
 
 def fetch_full_history(symbol: str, years=YEARS):
+    """Recupere l'historique complet sur `years` annees, segmente mois par mois."""
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=years*365)
     cur = start
@@ -198,6 +207,7 @@ def fetch_range(symbol: str, start_dt: datetime, end_dt: datetime):
     return df
 
 def fetch_incremental(symbol: str, start_ms: int):
+    """Recupere uniquement les nouvelles bougies a partir d'un timestamp millisecondes."""
     try:
         kl = client.get_historical_klines(symbol, INTERVAL, str(start_ms))
         if not kl:
@@ -213,38 +223,124 @@ def fetch_incremental(symbol: str, start_ms: int):
         log(f"{symbol} incr erreur: {e}")
         return None
 
-def df_to_candles(df, pair_id):
+def df_to_candles(df, pair_id, symbol: str = "unknown"):
+    """Convertit un DataFrame Binance en objets SQLAlchemy Candle.
+
+    Cette fonction applique aussi les regles de validation metier avant insertion
+    pour eviter de polluer la base avec des lignes incoherentes.
+    """
     if df is None or df.empty:
         return []
-    df['open_datetime'] = pd.to_datetime(df['open_time'], unit='ms', utc=True)
-    df['close_datetime'] = pd.to_datetime(df['close_time'], unit='ms', utc=True)
+    df['open_datetime'] = pd.to_datetime(df['open_time'], unit='ms', utc=True, errors='coerce')
+    df['close_datetime'] = pd.to_datetime(df['close_time'], unit='ms', utc=True, errors='coerce')
     rows = []
+    rejected = 0
+    rejected_reasons: dict[str, int] = {}
+
+    def _reject(reason: str) -> None:
+        # Compte les lignes rejetees par type d'erreur pour l'observabilite.
+        nonlocal rejected
+        rejected += 1
+        rejected_reasons[reason] = rejected_reasons.get(reason, 0) + 1
+
     for _,r in df.iterrows():
+        try:
+            open_dt = r['open_datetime']
+            close_dt = r['close_datetime']
+
+            open_price = float(r['open'])
+            high_price = float(r['high'])
+            low_price = float(r['low'])
+            close_price = float(r['close'])
+            volume_base = float(r['volume'])
+            volume_quote = float(r['quote_asset_volume'])
+            trade_count = int(r['number_of_trades'])
+            taker_buy_base = float(r['taker_buy_base_asset_volume'])
+            taker_buy_quote = float(r['taker_buy_quote_asset_volume'])
+        except Exception:
+            _reject("parse_error")
+            continue
+
+        # Controle 1: timestamps presents et ordonnes.
+        if pd.isna(open_dt) or pd.isna(close_dt):
+            _reject("invalid_timestamp")
+            continue
+        if close_dt <= open_dt:
+            _reject("invalid_time_order")
+            continue
+
+        # Controle 2: coherence des prix OHLC.
+        if (
+            open_price <= 0
+            or high_price <= 0
+            or low_price <= 0
+            or close_price <= 0
+        ):
+            _reject("non_positive_price")
+            continue
+        if high_price < low_price:
+            _reject("high_lower_than_low")
+            continue
+        if high_price < max(open_price, close_price):
+            _reject("high_below_open_close")
+            continue
+        if low_price > min(open_price, close_price):
+            _reject("low_above_open_close")
+            continue
+
+        # Controle 3: coherence des volumes et compteurs.
+        if volume_base < 0 or volume_quote < 0:
+            _reject("negative_volume")
+            continue
+        if trade_count < 0:
+            _reject("negative_trade_count")
+            continue
+        if taker_buy_base < 0 or taker_buy_quote < 0:
+            _reject("negative_taker_volume")
+            continue
+        if taker_buy_base > volume_base + 1e-12:
+            _reject("taker_base_gt_total")
+            continue
+        if taker_buy_quote > volume_quote + 1e-12:
+            _reject("taker_quote_gt_total")
+            continue
+
         rows.append(Candle(
             pair_id=pair_id,
-            open_datetime=r['open_datetime'],
-            close_datetime=r['close_datetime'],
-            open_price=float(r['open']),
-            high_price=float(r['high']),
-            low_price=float(r['low']),
-            close_price=float(r['close']),
-            volume_base=float(r['volume']),
-            volume_quote=float(r['quote_asset_volume']),
-            trade_count=int(r['number_of_trades']),
-            taker_buy_base_volume=float(r['taker_buy_base_asset_volume']),
-            taker_buy_quote_volume=float(r['taker_buy_quote_asset_volume'])
+            open_datetime=open_dt,
+            close_datetime=close_dt,
+            open_price=open_price,
+            high_price=high_price,
+            low_price=low_price,
+            close_price=close_price,
+            volume_base=volume_base,
+            volume_quote=volume_quote,
+            trade_count=trade_count,
+            taker_buy_base_volume=taker_buy_base,
+            taker_buy_quote_volume=taker_buy_quote
         ))
+
+    if rejected > 0:
+        log(f"{symbol}: {len(rows)} bougies valides, {rejected} rejetees avant insertion.")
+        log(f"{symbol}: detail rejets = {rejected_reasons}")
     return rows
 
 def get_last_open_datetime(db: Session, pair_id: int):
+    """Retourne la derniere bougie connue pour une paire."""
     return db.execute(
         select(func.max(Candle.open_datetime)).where(Candle.pair_id == pair_id)
     ).scalar_one_or_none()
 
 
 def _compute_data_quality_report(db: Session) -> dict:
+    """Construit un rapport de qualite global apres chargement.
+
+    Objectif: verifier rapidement si les donnees inserees restent exploitables.
+    """
+    # Volume global de donnees presentes.
     total_rows = int(db.execute(select(func.count(Candle.id))).scalar_one() or 0)
 
+    # Nombre de symbols distincts couverts dans candlestick.
     symbol_count = int(
         db.execute(
             select(func.count(func.distinct(Pair.symbol)))
@@ -254,10 +350,12 @@ def _compute_data_quality_report(db: Session) -> dict:
         or 0
     )
 
+    # Fraicheur: derniere bougie disponible en base.
     latest_open = db.execute(select(func.max(Candle.open_datetime))).scalar_one_or_none()
     if latest_open is not None and latest_open.tzinfo is None:
         latest_open = latest_open.replace(tzinfo=timezone.utc)
 
+    # Check 1: champs critiques nuls (ne devrait jamais arriver).
     null_count = int(
         db.execute(
             text(
@@ -279,6 +377,7 @@ def _compute_data_quality_report(db: Session) -> dict:
         or 0
     )
 
+    # Check 2: prix non positifs.
     invalid_price_count = int(
         db.execute(
             text(
@@ -295,6 +394,7 @@ def _compute_data_quality_report(db: Session) -> dict:
         or 0
     )
 
+    # Check 3: doublons de bougies par paire+timestamp.
     duplicate_pair_time_groups = int(
         db.execute(
             text(
@@ -312,11 +412,13 @@ def _compute_data_quality_report(db: Session) -> dict:
         or 0
     )
 
+    # Fraicheur exprimee en heures de retard par rapport a maintenant.
     now_utc = datetime.now(timezone.utc)
     freshness_hours = None
     if latest_open is not None:
         freshness_hours = round((now_utc - latest_open).total_seconds() / 3600, 2)
 
+    # Statut de chaque controle, puis statut global.
     checks = {
         "null_critical_fields": {
             "count": null_count,
@@ -360,6 +462,7 @@ def _compute_data_quality_report(db: Session) -> dict:
 
 
 def _persist_data_quality_report(report: dict) -> None:
+    """Sauvegarde le rapport de qualite en version historisee + latest."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     history_file = MODELS_DIR / f"data_quality_{timestamp}.json"
     latest_file = MODELS_DIR / "data_quality_latest.json"
@@ -369,9 +472,12 @@ def _persist_data_quality_report(report: dict) -> None:
     log(f"Data quality report saved: {latest_file.name} (status={report.get('overall_status')})")
 
 def run_incremental_cycle():
+    """Orchestre un cycle complet d'update incremental."""
+    # S'assure que les tables existent avant tout traitement.
     init_db()
 
     with SessionLocal() as db:
+        # Etape A: references minimales (exchange + quote asset).
         exch_id = ensure_exchange_and_quote(db)
         # 1) Récupérer un pool de candidats plus large que TOP_N
         candidate_pool = get_top_symbols(limit=50)
@@ -409,7 +515,7 @@ def run_incremental_cycle():
                 pair_id = ensure_pair(db, exch_id, symbol)
                 start_dt = datetime.now(timezone.utc) - timedelta(days=YEARS*365)
                 df_full = fetch_range(symbol, start_dt, datetime.now(timezone.utc))
-                candles = df_to_candles(df_full, pair_id)
+                candles = df_to_candles(df_full, pair_id, symbol=symbol)
                 if candles:
                     db.bulk_save_objects(candles)
                     db.commit()
@@ -418,7 +524,7 @@ def run_incremental_cycle():
                     log(f"{symbol}: aucun historique récupéré malgré éligibilité. A vérifier.")
                 continue
 
-            # Incrémental
+            # Incrémental: on ne récupère que les bougies manquantes depuis la dernière heure connue.
             pair_id = pair_row.id
             last_open = get_last_open_datetime(db, pair_id)
             if last_open:
@@ -434,7 +540,7 @@ def run_incremental_cycle():
                         continue
                 start_ms = int(next_needed.timestamp()*1000)
                 df_inc = fetch_incremental(symbol, start_ms)
-                candles = df_to_candles(df_inc, pair_id)
+                candles = df_to_candles(df_inc, pair_id, symbol=symbol)
                 if candles:
                     db.bulk_save_objects(candles)
                     db.commit()
@@ -445,12 +551,13 @@ def run_incremental_cycle():
                 # Paire existante sans données → backfill 4 ans
                 start_dt = datetime.now(timezone.utc) - timedelta(days=YEARS*365)
                 df_full = fetch_range(symbol, start_dt, datetime.now(timezone.utc))
-                candles = df_to_candles(df_full, pair_id)
+                candles = df_to_candles(df_full, pair_id, symbol=symbol)
                 if candles:
                     db.bulk_save_objects(candles)
                     db.commit()
                     log(f"{symbol}: (rattrapage) {len(candles)} bougies (4 ans).")
 
+        # Etape finale: produire le rapport de qualite pour l'observabilite.
         try:
             dq_report = _compute_data_quality_report(db)
             _persist_data_quality_report(dq_report)
@@ -458,6 +565,7 @@ def run_incremental_cycle():
             log(f"Data quality report generation failed: {e}")
 
 def main():
+    """Point d'entree CLI du script incremental."""
     run_incremental_cycle()
 
 if __name__ == "__main__":

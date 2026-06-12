@@ -7,6 +7,12 @@ from sqlalchemy.orm import Session
 from .db_utils import init_db, SessionLocal, engine
 from .models import Exchange, Crypto, Pair, Candlestick as Candle
 
+# Ce script fait le chargement initial:
+# 1) choix des paires Binance eligibles
+# 2) recuperation de 4 ans de bougies
+# 3) validation des lignes
+# 4) insertion en base
+
 YEARS = 4
 INTERVAL = Client.KLINE_INTERVAL_1HOUR
 STABLES = {"USDT","USDC","BUSD","DAI","TUSD","PAX","USDP","FDUSD","GUSD"}
@@ -29,6 +35,7 @@ def has_min_history(symbol: str, interval: str, years: int) -> bool:
             return False
 
 def get_top_symbols(limit=TOP_N):
+    """Retourne les paires USDT les plus liquides avec historique suffisant."""
     tickers = client.get_ticker()
     candidates = []
     for t in tickers:
@@ -60,6 +67,7 @@ def get_top_symbols(limit=TOP_N):
     return selected
 
 def ensure_refs(db: Session):
+    """Cree les references minimales (exchange/crypto) si elles n'existent pas."""
     exch = db.execute(select(Exchange).where(Exchange.name=="Binance")).scalar_one_or_none()
     if not exch:
         exch = Exchange(name="Binance")
@@ -73,6 +81,7 @@ def ensure_refs(db: Session):
     return exch.id
 
 def ensure_pair(db: Session, exchange_id: int, symbol: str):
+    """Cree (si necessaire) la paire pour un symbole et retourne son pair_id."""
     base = symbol[:-4]
     quote = "USDT"
     base_crypto = db.execute(select(Crypto).where(Crypto.symbol==base)).scalar_one_or_none()
@@ -95,6 +104,7 @@ def ensure_pair(db: Session, exchange_id: int, symbol: str):
     return pair.id
 
 def fetch_symbol(symbol: str, years: int):
+    """Recupere l'historique d'un symbole sur `years` annees, mois par mois."""
     end = datetime.now()
     start = end - timedelta(days=years*365)
     cur = start
@@ -124,35 +134,121 @@ def fetch_symbol(symbol: str, years: int):
     return out
 
 def insert_candles(db: Session, pair_id: int, df: pd.DataFrame):
+    """Valide puis insere les bougies pour une paire.
+
+    Les lignes invalides sont rejetees avant insert et comptabilisees par raison.
+    """
     if df is None or df.empty:
         return
-    df['open_datetime'] = pd.to_datetime(df['open_time'], unit='ms', utc=True)
-    df['close_datetime'] = pd.to_datetime(df['close_time'], unit='ms', utc=True)
+    df['open_datetime'] = pd.to_datetime(df['open_time'], unit='ms', utc=True, errors='coerce')
+    df['close_datetime'] = pd.to_datetime(df['close_time'], unit='ms', utc=True, errors='coerce')
     rows = []
+    rejected = 0
+    rejected_reasons: dict[str, int] = {}
+
+    def _reject(reason: str) -> None:
+        # Comptage des rejets pour comprendre rapidement pourquoi des lignes sont ignorees.
+        nonlocal rejected
+        rejected += 1
+        rejected_reasons[reason] = rejected_reasons.get(reason, 0) + 1
+
     for _, r in df.iterrows():
+        try:
+            open_dt = r['open_datetime']
+            close_dt = r['close_datetime']
+
+            open_price = float(r['open'])
+            high_price = float(r['high'])
+            low_price = float(r['low'])
+            close_price = float(r['close'])
+            volume_base = float(r['volume'])
+            volume_quote = float(r['quote_asset_volume'])
+            trade_count = int(r['number_of_trades'])
+            taker_buy_base = float(r['taker_buy_base_asset_volume'])
+            taker_buy_quote = float(r['taker_buy_quote_asset_volume'])
+        except Exception:
+            _reject("parse_error")
+            continue
+
+        # Controle 1: timestamps valides et ordonnes.
+        if pd.isna(open_dt) or pd.isna(close_dt):
+            _reject("invalid_timestamp")
+            continue
+        if close_dt <= open_dt:
+            _reject("invalid_time_order")
+            continue
+
+        # Controle 2: coherence des prix OHLC.
+        if (
+            open_price <= 0
+            or high_price <= 0
+            or low_price <= 0
+            or close_price <= 0
+        ):
+            _reject("non_positive_price")
+            continue
+        if high_price < low_price:
+            _reject("high_lower_than_low")
+            continue
+        if high_price < max(open_price, close_price):
+            _reject("high_below_open_close")
+            continue
+        if low_price > min(open_price, close_price):
+            _reject("low_above_open_close")
+            continue
+
+        # Controle 3: coherence des volumes et du nombre de trades.
+        if volume_base < 0 or volume_quote < 0:
+            _reject("negative_volume")
+            continue
+        if trade_count < 0:
+            _reject("negative_trade_count")
+            continue
+        if taker_buy_base < 0 or taker_buy_quote < 0:
+            _reject("negative_taker_volume")
+            continue
+        if taker_buy_base > volume_base + 1e-12:
+            _reject("taker_base_gt_total")
+            continue
+        if taker_buy_quote > volume_quote + 1e-12:
+            _reject("taker_quote_gt_total")
+            continue
+
         rows.append(Candle(
             pair_id=pair_id,
-            open_datetime=r['open_datetime'],
-            close_datetime=r['close_datetime'],
-            open_price=float(r['open']),
-            high_price=float(r['high']),
-            low_price=float(r['low']),
-            close_price=float(r['close']),
-            volume_base=float(r['volume']),
-            volume_quote=float(r['quote_asset_volume']),
-            trade_count=int(r['number_of_trades']),
-            taker_buy_base_volume=float(r['taker_buy_base_asset_volume']),
-            taker_buy_quote_volume=float(r['taker_buy_quote_asset_volume'])
+            open_datetime=open_dt,
+            close_datetime=close_dt,
+            open_price=open_price,
+            high_price=high_price,
+            low_price=low_price,
+            close_price=close_price,
+            volume_base=volume_base,
+            volume_quote=volume_quote,
+            trade_count=trade_count,
+            taker_buy_base_volume=taker_buy_base,
+            taker_buy_quote_volume=taker_buy_quote
         ))
-    db.bulk_save_objects(rows)
-    db.commit()
-    print(f"Insertion {len(rows)} bougies.")
+
+    if rows:
+        db.bulk_save_objects(rows)
+        db.commit()
+
+    if rejected > 0:
+        print(f"Insertion {len(rows)} bougies, rejet {rejected} lignes (pair_id={pair_id}).")
+        print(f"Détail rejets: {rejected_reasons}")
+    else:
+        print(f"Insertion {len(rows)} bougies.")
 
 def main():
+    """Point d'entree du chargement initial."""
+    # Etape A: creer les tables si absentes.
     init_db()  # Crée les tables à partir de models.py si absentes
     with SessionLocal() as db:
+        # Etape B: preparer les references puis determiner les symbols a charger.
         exch_id = ensure_refs(db)
         symbols = get_top_symbols()
+
+        # Etape C: chargement complet pour chaque symbole retenu.
         for sym in symbols:
             pair_id = ensure_pair(db, exch_id, sym)
             df = fetch_symbol(sym, YEARS)
