@@ -10,29 +10,12 @@ st.set_page_config(
 )
 
 
-st.markdown(
-    """
-    <style>
-    .hero {
-        padding: 1.2rem 1.3rem;
-        border-radius: 14px;
-        background: linear-gradient(120deg, #f3f8ff 0%, #ecfdf5 100%);
-        border: 1px solid #dbeafe;
-        margin-bottom: 1rem;
-    }
-    .muted {
-        color: #475569;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
-st.title("CryptoBot")
+st.title("Pipeline de prédiction")
 st.markdown(
     """
     <div class="hero">
-      <h4>Assistant de decision crypto en continu</h4>
+      <h4>Aide à l'achat de cryptomonnaies</h4>
       <p class="muted">
             Le projet automatise la collecte des donnees, l'entrainement des modeles et l'exposition des predictions via API.
             Pour la soutenance, cette home sert d'entree de demo: aller directement a la prediction puis a l'evaluation.
@@ -56,10 +39,9 @@ st.markdown(
     """
 ### Comment utiliser la demo
 
-1. Ouvrir la page 4 pour lancer une prediction en direct.
-2. Montrer le graphe d'evaluation (prix reel vs prix predit vs baseline).
-3. Montrer le backtest classification.
-4. Utiliser les pages 5 et 6 uniquement en support si besoin.
+1. Ouvrir la page "Demo Prediction" pour lancer une prediction en direct.
+2. Ouvrir la section "Evaluation Modele" pour comparer modele vs baseline.
+3. Montrer l'analyse "volume vs variation de prix" par heure/jour.
 
     """
 )

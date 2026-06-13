@@ -11,7 +11,7 @@ import requests
 import streamlit as st
 import joblib
 
-st.set_page_config(page_title="4 - Modélisation & Machine Learning", layout="wide")
+st.set_page_config(page_title="Demo - Prediction & Evaluation", layout="wide")
 
 # Global CSS helpers (text justification, etc.)
 st.markdown(
@@ -218,18 +218,16 @@ def get_models_and_features():
         },
     }
 
-st.title("4️⃣ Modélisation et Machine Learning")
+st.title("Demo ML: Prediction & Evaluation")
 
 tabs = st.tabs([
-    "4.1 Problème & choix d’algorithmes",
-    "4.2 Pré-traitements & justification",
-    "4.3 DataViz & statistiques",
-    "4.4 Évaluation & baseline"
+    "Demo Prediction",
+    "Evaluation Modele"
 ])
 
 
 with tabs[0]:
-    st.header("4.1 Problème & choix d’algorithmes")
+    st.header("Prediction en direct")
     st.info("🎯 **Mission :** Assister la décision de trading à court terme")
 
     # Sélecteur de crypto en haut
@@ -359,157 +357,7 @@ with tabs[0]:
 
 
 with tabs[1]:
-    st.header("4.2 Pré-traitements & Justification 🧪")
-    st.info("💡 **Objectif :** Transformer les **bougies brutes** en **variables explicatives** pour les modèles. ➡️")
-
-    st.write("---")
-
-    st.markdown("### Aperçu et diagnostics par symbole")
-    symbols = list_symbols()
-    if not symbols:
-        st.info("Aucun symbole actif en base.")
-    else:
-        colp1, colp2 = st.columns([1,1])
-        with colp1:
-            sym = st.selectbox("Symbole", symbols, key="prep_sym_ml4")
-        with colp2:
-            months_prep = st.slider("Fenêtre (mois)", 3, 48, 6, step=3, key="ml4_prep_months")
-
-        try:
-            years_need = max(1, math.ceil(months_prep / 12))
-            df_full = load_candles(sym, years=years_need)
-            # Restreindre à la fenêtre choisie
-            dfw = df_full[df_full["timestamp"] >= (pd.Timestamp.utcnow() - pd.DateOffset(months=months_prep))].copy()
-            dff = compute_features(dfw).reset_index(drop=True)
-
-            # Aperçu tabulaire (dernières lignes)
-            if not dff.empty:
-                st.dataframe(dff.dropna().tail(100)[[
-                    "timestamp", "close_price", "price_lag_1h", "rolling_mean_24h", "rsi", "macd_diff", "atr", "hour_of_day", "day_of_week", "target_price"
-                ]])
-            else:
-                st.info("Pas assez d'historique pour calculer les features sur la fenêtre.")
-
-            st.write("---")
-            st.subheader("Autocorrélation des lags (corrélation roulante)")
-            lag_win = st.slider("Fenêtre de corrélation (heures)", 24, 240, 72, step=12, help="Taille de la fenêtre pour la corrélation roulante", key="ml4_lag_win")
-            try:
-                if not dff.empty:
-                    fig_ac = go.Figure()
-                    for k in range(1, 6):
-                        col = f"price_lag_{k}h"
-                        if col in dff.columns:
-                            corr_series = dff["close_price"].rolling(lag_win, min_periods=max(6, lag_win//6)).corr(dff[col])
-                            fig_ac.add_trace(go.Scatter(x=dff["timestamp"], y=corr_series, name=f"lag {k}h", mode="lines"))
-                    fig_ac.update_layout(height=320, title=f"{sym} – Corrélation roulante close vs lags (fenêtre={lag_win}h)", yaxis=dict(range=[-1,1]))
-                    st.plotly_chart(fig_ac, use_container_width=True)
-                else:
-                    st.info("Données insuffisantes pour l'autocorrélation.")
-            except Exception as e:
-                st.warning(f"Autocorrélation indisponible: {e}")
-
-            st.subheader("Répartition des volumes par heure/jour")
-            dim = st.radio("Agréger par", ["Heure", "Jour"], horizontal=True, key="ml4_vol_dim")
-            try:
-                if not dff.empty:
-                    dfv = dff.copy()
-                    # Assurer la présence des features de temps
-                    if "hour_of_day" not in dfv.columns or "day_of_week" not in dfv.columns:
-                        ts = pd.to_datetime(dfv["timestamp"])  # sauvegarde
-                        dfv["hour_of_day"] = ts.dt.hour
-                        dfv["day_of_week"] = ts.dt.dayofweek
-                    if dim == "Heure":
-                        agg = dfv.groupby("hour_of_day", as_index=False)["volume_base"].sum()
-                        x = agg["hour_of_day"].astype(int)
-                        x_title = "Heure du jour"
-                    else:
-                        agg = dfv.groupby("day_of_week", as_index=False)["volume_base"].sum()
-                        dow_map = {0:"Lun",1:"Mar",2:"Mer",3:"Jeu",4:"Ven",5:"Sam",6:"Dim"}
-                        x = agg["day_of_week"].map(dow_map)
-                        x_title = "Jour de la semaine"
-                    fig_vol = go.Figure(go.Bar(x=x, y=agg["volume_base"], marker_color="#1f77b4"))
-                    fig_vol.update_layout(height=320, title=f"{sym} – Somme des volumes ({months_prep} mois)", xaxis_title=x_title, yaxis_title="Volume (base)")
-                    st.plotly_chart(fig_vol, use_container_width=True)
-                else:
-                    st.info("Données insuffisantes pour la distribution des volumes.")
-            except Exception as e:
-                st.warning(f"Distribution des volumes indisponible: {e}")
-
-            st.subheader("Lissage par moyennes mobiles")
-            try:
-                if not dff.empty:
-                    fig_ma = go.Figure()
-                    fig_ma.add_trace(go.Scatter(x=dff["timestamp"], y=dff["close_price"], name="Close", mode="lines", line=dict(color="#999")))
-                    if "rolling_mean_24h" in dff.columns:
-                        fig_ma.add_trace(go.Scatter(x=dff["timestamp"], y=dff["rolling_mean_24h"], name="MM 24h", mode="lines", line=dict(color="#2ca02c")))
-                    if "rolling_mean_72h" in dff.columns:
-                        fig_ma.add_trace(go.Scatter(x=dff["timestamp"], y=dff["rolling_mean_72h"], name="MM 72h", mode="lines", line=dict(color="#d62728")))
-                    fig_ma.update_layout(height=360, title=f"{sym} – Close vs Moyennes Mobiles ({months_prep} mois)")
-                    st.plotly_chart(fig_ma, use_container_width=True)
-                else:
-                    st.info("Données insuffisantes pour le plot des moyennes mobiles.")
-            except Exception as e:
-                st.warning(f"Plot des moyennes mobiles indisponible: {e}")
-
-        except Exception as e:
-            st.error(f"Erreur préparation: {e}")
-
-
-with tabs[2]:
-    st.header("4.3 DataViz & statistiques")
-    symbols = list_symbols()
-    if not symbols:
-        st.warning("Aucun symbole actif en base.")
-    else:
-        col1, col2, col3 = st.columns([2,1,1])
-        with col2:
-            sym = st.selectbox("Symbole", symbols, index=0, key="viz_sym_ml4")
-        with col3:
-            months = st.slider("Fenêtre (mois)", 3, 48, 12, step=3)
-        with st.spinner("Chargement…"):
-            years_need = max(1, math.ceil(months / 12))
-            df = load_candles(sym, years=years_need)
-            dfl = df[df["timestamp"] >= (pd.Timestamp.utcnow() - pd.DateOffset(months=months))].copy()
-            dfl["returns"] = dfl["close_price"].pct_change()
-        # Courbe des prix
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=dfl["timestamp"], y=dfl["close_price"], name="Close", mode="lines"))
-        fig.update_layout(height=380, title=f"{sym} – Prix (derniers {months} mois)")
-        st.plotly_chart(fig, use_container_width=True)
-        # Histogramme des rendements
-        st.subheader("Distribution des rendements horaires")
-        hist = go.Figure(data=[go.Histogram(x=dfl["returns"].dropna(), nbinsx=50)])
-        hist.update_layout(height=280)
-        st.plotly_chart(hist, use_container_width=True)
-
-
-        st.subheader("Artefacts les plus récents")
-        reg_model_path, reg_feat_path = list_latest_artifacts()
-        if not all([reg_model_path, reg_feat_path]):
-            st.warning("Certains artefacts regresseur (modèle ou features) sont manquants dans le dossier algo_crypto.")
-        else:
-            def fmt(p):
-                try:
-                    ts = datetime.fromtimestamp(p.stat().st_mtime)
-                    return f"{p.name} (modifié: {ts:%Y-%m-%d %H:%M:%S})"
-                except Exception:
-                    return str(p)
-            st.write("Régression:")
-            st.write("• Modèle:", fmt(reg_model_path))
-            st.write("• Features:", fmt(reg_feat_path))
-
-            with st.expander("Chargement rapide des modèles (sanity check)"):
-                try:
-                    reg_model = joblib.load(reg_model_path)
-                    with open(reg_feat_path, 'r') as f:
-                        reg_feats = json.load(f)
-                    st.write(f"Régression: {type(reg_model).__name__} – {len(reg_feats)} features")
-                except Exception as e:
-                    st.error(f"Erreur chargement modèles: {e}")
-
-
-with tabs[3]:
-    st.header("4.4 Évaluation & comparaison à une baseline")
+    st.header("Evaluation vs baseline")
     md_justify(
         """
         Méthode : comparaison au naïf « persistance » (prix(t + 1h) ≈ close(t)).
@@ -555,8 +403,24 @@ with tabs[3]:
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("MAE (modèle)", f"{mae:.2f}")
             m2.metric("RMSE (modèle)", f"{rmse:.2f}")
-            m3.metric("MAE (baseline)", f"{mae_base:.2f}", f"Δ {(mae_base-mae)/mae_base*100:.1f}%")
-            m4.metric("RMSE (baseline)", f"{rmse_base:.2f}", f"Δ {(rmse_base-rmse)/rmse_base*100:.1f}%")
+            m3.metric("MAE (baseline)", f"{mae_base:.2f}")
+            m4.metric("RMSE (baseline)", f"{rmse_base:.2f}")
+
+            # Delta explicite "modèle - baseline" pour éviter toute ambiguïté visuelle.
+            # Sur des erreurs, plus bas = mieux: une delta négative est favorable.
+            d1, d2 = st.columns(2)
+            d1.metric(
+                "Δ MAE (modèle - baseline)",
+                f"{(mae - mae_base):+.2f}",
+                f"{((mae - mae_base) / mae_base) * 100:+.1f}%",
+                delta_color="inverse",
+            )
+            d2.metric(
+                "Δ RMSE (modèle - baseline)",
+                f"{(rmse - rmse_base):+.2f}",
+                f"{((rmse - rmse_base) / rmse_base) * 100:+.1f}%",
+                delta_color="inverse",
+            )
             st.caption("Le modele predit d'abord une variation %, convertie ici en prix predit pour une comparaison prix vs prix.")
             # MAE roulante
             err_model = np.abs(yr_true - yr_pred)
@@ -568,10 +432,74 @@ with tabs[3]:
             fig_roll.add_trace(go.Scatter(x=dff["timestamp"], y=s_base, name="MAE roulante – baseline", line=dict(dash="dot")))
             fig_roll.update_layout(height=320, title="MAE roulante (stabilité des erreurs)")
             st.plotly_chart(fig_roll, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("Backtest directionnel (régression) vs Buy&Hold")
+            st.caption(
+                "Règle: on prend une position LONG si la variation prédite t+1 dépasse un seuil, sinon position neutre."
+            )
+
+            cbt1, cbt2, cbt3 = st.columns(3)
+            with cbt1:
+                threshold_bps = st.slider(
+                    "Seuil signal (bps/pourcentage)", 0, 30, 5,
+                    help="Le signal LONG est activé si prediction_pct > seuil. (1 bps = 0.01%)"
+                )
+            with cbt2:
+                fee_bps = st.slider(
+                    "Frais (bps)", 0, 30, 5,
+                    help="Frais appliqués lors d'un changement de position. (1 bps = 0.01%)"
+                )
+            with cbt3:
+                init_cap = st.number_input(
+                    "Capital initial (USDT)",
+                    min_value=100.0,
+                    max_value=1_000_000.0,
+                    value=1000.0,
+                    step=100.0,
+                )
+
+            threshold_pct = threshold_bps / 100.0
+            fee_rate = fee_bps / 10000.0
+
+            # Strategie long/flat: 1 si signal positif au-dessus du seuil, sinon 0
+            signal = (yr_pred_pct > threshold_pct).astype(int)
+            position = pd.Series(signal, index=dff.index)
+            position_expo = position.shift(1).fillna(0)
+
+            # Rendements reels de marche sur chaque pas
+            mkt_ret = pd.Series(y_base, index=dff.index).pct_change().fillna(0.0)
+
+            # Frais uniquement lors des changements de position
+            trade_count = (position != position.shift(1).fillna(0)).astype(int)
+            fee_factor = (1.0 - fee_rate) ** trade_count
+
+            strat_growth = (1.0 + (mkt_ret * position_expo)) * fee_factor
+            strat_equity = strat_growth.cumprod() * init_cap
+
+            bh_equity = (1.0 + mkt_ret).cumprod() * init_cap
+
+            fig_bt = go.Figure()
+            fig_bt.add_trace(go.Scatter(x=dff["timestamp"], y=bh_equity, name="Buy&Hold", mode="lines"))
+            fig_bt.add_trace(go.Scatter(x=dff["timestamp"], y=strat_equity, name="Strategie long/flat", mode="lines"))
+            fig_bt.update_layout(height=360, title=f"{sym} - Equity (USDT) : Strategie vs Buy&Hold")
+            st.plotly_chart(fig_bt, use_container_width=True)
+
+            strat_final = float(strat_equity.iloc[-1])
+            bh_final = float(bh_equity.iloc[-1])
+            strat_ret = (strat_final / init_cap - 1.0) * 100.0
+            bh_ret = (bh_final / init_cap - 1.0) * 100.0
+            nb_trades = int(trade_count.sum())
+
+            b1, b2, b3 = st.columns(3)
+            b1.metric("Rendement stratégie", f"{strat_ret:.2f}%")
+            b2.metric("Rendement Buy&Hold", f"{bh_ret:.2f}%")
+            b3.metric("Nombre de changements", f"{nb_trades}")
+
+            st.caption(
+                "Suggestion: cette stratégie est volontairement simple. Une variante robuste est de remplacer long/flat par "
+                "long/flat/short avec seuil symétrique et filtre ATR pour éviter de trader les faibles signaux."
+            )
         except Exception as e:
             st.error(f"Analyse indisponible: {e}")
-
-    st.markdown("---")
-    st.subheader("Backtest directionnel")
-    st.info("Le backtest classification est désactivé: la direction est désormais dérivée de la prédiction de régression (next_close_predicted vs close actuel).")
 
