@@ -149,6 +149,9 @@ def main():
             "regression": {
                 "mae_pct": reg_result["mae"],
                 "rmse_pct": reg_result.get("rmse", None),  # RMSE détecte outliers (RMSE >> MAE = problème)
+                "mae_baseline_pct": reg_result.get("mae_baseline", None),
+                "rmse_baseline_pct": reg_result.get("rmse_baseline", None),
+                "direction_accuracy": reg_result.get("direction_accuracy", None),
                 "r2": reg_result["r2"],
             },
             # Classification supprimée : direction déduite post-hoc via seuil ATR.
