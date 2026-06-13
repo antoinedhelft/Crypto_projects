@@ -106,15 +106,19 @@ def test_predict_endpoint_with_real_data():
     
     assert "next_close_pct_change" in prediction
     assert isinstance(prediction["next_close_pct_change"], (int, float))
-    
-    assert "direction" in prediction
-    assert prediction["direction"] in ["Baisse", "Stable", "Hausse"]
-    
-    assert "confidence" in prediction
-    if prediction["confidence"] is not None:
-        assert 0 <= prediction["confidence"] <= 100
-    
-    print(f"✅ Prédiction : {prediction['next_close_pct_change']} %, Direction : {prediction['direction']}")
+
+    assert "next_close_predicted" in prediction
+    assert isinstance(prediction["next_close_predicted"], (int, float))
+
+    assert "current_candle" in data
+    assert "open" in data["current_candle"]
+    assert "close" in data["current_candle"]
+
+    print(
+        f"✅ Prédiction : {prediction['next_close_pct_change']} %, "
+        f"close courant={data['current_candle']['close']}, "
+        f"close prédit={prediction['next_close_predicted']}"
+    )
 
 
 def test_status_endpoint_returns_models_and_freshness():
@@ -127,7 +131,6 @@ def test_status_endpoint_returns_models_and_freshness():
     data = response.json()
     assert "models" in data
     assert data["models"]["regressor"]
-    assert data["models"]["classifier"]
     assert "data_freshness" in data
 
 

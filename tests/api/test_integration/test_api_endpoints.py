@@ -37,7 +37,7 @@ def test_status_endpoint(client, monkeypatch):
     monkeypatch.setattr(
         inference,
         "get_model_paths",
-        lambda: (_FakePath("reg.joblib"), _FakePath("clf.joblib"), _FakePath("rf.json"), _FakePath("cf.json")),
+        lambda: (_FakePath("reg.joblib"), _FakePath("rf.json")),
     )
     monkeypatch.setattr(inference, "_latest_file", lambda pattern: None)
     monkeypatch.setattr(
@@ -51,13 +51,11 @@ def test_status_endpoint(client, monkeypatch):
         lambda: {
             "deployed": {
                 "regressor": "reg.joblib",
-                "classifier": "clf.joblib",
                 "trained_at": "2026-01-01T00:00:00",
                 "score": 0.12,
             },
             "last_candidate": {
                 "regressor": "reg_prev.joblib",
-                "classifier": "clf_prev.joblib",
                 "trained_at": "2025-12-01T00:00:00",
                 "score": 0.10,
             },
@@ -70,7 +68,6 @@ def test_status_endpoint(client, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert data["models"]["regressor"] == "reg.joblib"
-    assert data["models"]["classifier"] == "clf.joblib"
     assert data["data_freshness"]["symbol"] == "BTCUSDT"
     assert "data_quality" in data
     assert "model_deployment" in data
@@ -103,12 +100,11 @@ def test_predict_symbol_endpoint(client, monkeypatch):
             "symbol": symbol,
             "timestamp": "2026-01-01T01:00:00+00:00",
             "asof": "2026-01-01T00:00:00+00:00",
-            "model_version": {"regressor": "reg.joblib", "classifier": "clf.joblib"},
+            "current_candle": {"open": 100.0, "close": 101.0},
+            "model_version": {"regressor": "reg.joblib"},
             "prediction": {
                 "next_close_pct_change": 0.42,
-                "direction": "Hausse",
-                "confidence": 67.5,
-                "probabilities": {"Baisse": 10.0, "Stable": 22.5, "Hausse": 67.5},
+                "next_close_predicted": 101.4242,
             },
         },
     )
@@ -118,7 +114,7 @@ def test_predict_symbol_endpoint(client, monkeypatch):
     # Verifier la reponse.
     assert response.status_code == 200
     assert response.json()["symbol"] == "BTCUSDT"
-    assert response.json()["prediction"]["direction"] == "Hausse"
+    assert "next_close_predicted" in response.json()["prediction"]
 
 
 @pytest.mark.integration
@@ -133,12 +129,11 @@ def test_predict_batch_endpoint_partial_errors(client, monkeypatch):
             "symbol": symbol,
             "timestamp": "2026-01-01T01:00:00+00:00",
             "asof": "2026-01-01T00:00:00+00:00",
-            "model_version": {"regressor": "reg.joblib", "classifier": "clf.joblib"},
+            "current_candle": {"open": 100.0, "close": 101.0},
+            "model_version": {"regressor": "reg.joblib"},
             "prediction": {
                 "next_close_pct_change": 0.1,
-                "direction": "Stable",
-                "confidence": 50.0,
-                "probabilities": {"Baisse": 25.0, "Stable": 50.0, "Hausse": 25.0},
+                "next_close_predicted": 101.101,
             },
         }
 

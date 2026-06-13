@@ -125,10 +125,10 @@ def test_status_returns_operational_payload(monkeypatch):
     monkeypatch.setattr(
         inference,
         "get_model_paths",
-        lambda: (_FakePath("reg.joblib"), _FakePath("clf.joblib"), _FakePath("r.json"), _FakePath("c.json")),
+        lambda: (_FakePath("reg.joblib"), _FakePath("r.json")),
     )
     monkeypatch.setattr(inference, "_latest_file", lambda pattern: None)
-    monkeypatch.setattr(inference, "_load_deployed_registry", lambda: {"deployed": {"regressor": "reg.joblib", "classifier": "clf.joblib"}})
+    monkeypatch.setattr(inference, "_load_deployed_registry", lambda: {"deployed": {"regressor": "reg.joblib"}})
 
     import pandas as pd
     fake_df = pd.DataFrame([{"timestamp": "2026-01-01T00:00:00+00:00"}])
@@ -138,7 +138,6 @@ def test_status_returns_operational_payload(monkeypatch):
     payload = inference.status(symbol="BTCUSDT")
     # Verifier les informations utiles exposees.
     assert payload["models"]["regressor"] == "reg.joblib"
-    assert payload["models"]["classifier"] == "clf.joblib"
     assert payload["metrics"] is None
     assert payload["data_freshness"]["symbol"] == "BTCUSDT"
     assert payload["model_deployment"]["deployed"]["regressor"] == "reg.joblib"
