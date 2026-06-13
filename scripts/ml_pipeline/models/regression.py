@@ -36,7 +36,6 @@ def train_regressor(df_features, features_path, model_path, train_mask=None):
     """
 
     # Caractéristiques (exclusion des colonnes de data leakage)
-    # Inclure atr_pct pour avoir les mêmes features que le classificateur (alignement)
     features_reg = [col for col in df_features.columns if col not in ['symbol', 'target_price', 'target_pct', 'close_price']]
     X = df_features[features_reg]
     # Prédire la variation % plutôt que le prix absolu : scale-indépendant entre paires
