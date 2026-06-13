@@ -137,34 +137,30 @@ def main():
         sys.stdout.flush()
         reg_result = train_regressor(df_features, FEATURES_REG_JSON, MODEL_REG_PATH, train_mask=train_mask)
         
-        print("[DEBUG] Entraînement classificateur...")
-        sys.stdout.flush()
-        clf_result = train_classifier(df_features, FEATURES_CLF_JSON, MODEL_CLF_PATH, train_mask=train_mask)
+        # CLASSIFICATION DÉSACTIVÉE (2024-06-13):
+        # Raison: avec features identiques à la régression, la classification est redondante.
+        # Solution: déduire la direction du prix via seuil post-hoc sur la prédiction regressor.
+        # Voir api/inference.py pour la logique de déduction Baisse/Stable/Hausse.
+        # clf_result = train_classifier(df_features, FEATURES_CLF_JSON, MODEL_CLF_PATH, train_mask=train_mask)
         
-        # Sauvegarde des métriques du run courant
+        # Sauvegarde des métriques du run courant (régression seulement)
         metrics_new = {
             "trained_at": datetime.datetime.now().isoformat(),
             "regression": {
                 "mae_pct": reg_result["mae"],
+                "rmse_pct": reg_result.get("rmse", None),  # RMSE détecte outliers (RMSE >> MAE = problème)
                 "r2": reg_result["r2"],
             },
-            "classification": {
-                "f1_macro": clf_result["report"]["macro avg"]["f1-score"],
-                "accuracy": clf_result["report"]["accuracy"],
-            },
+            # Classification supprimée : direction déduite post-hoc via seuil ATR.
         }
 
         # Comparaison avec les métriques précédentes si elles existent
         metrics_prev = _load_previous_metrics()
         if metrics_prev:
             prev_mae = metrics_prev.get("regression", {}).get("mae_pct")
-            prev_f1  = metrics_prev.get("classification", {}).get("f1_macro")
             new_mae  = metrics_new["regression"]["mae_pct"]
-            new_f1   = metrics_new["classification"]["f1_macro"]
-            print(f"[METRICS] Régression MAE%  : {prev_mae:.4f} → {new_mae:.4f} "
+            print(f"[METRICS] Régression MAE%: {prev_mae:.4f} → {new_mae:.4f} "
                   f"({'✓ amélioration' if new_mae < prev_mae else '✗ dégradation'})")
-            print(f"[METRICS] Classification F1: {prev_f1:.4f} → {new_f1:.4f} "
-                  f"({'✓ amélioration' if new_f1 > prev_f1 else '✗ dégradation'})")
         else:
             print("[METRICS] Premier entraînement — pas de comparaison possible.")
 

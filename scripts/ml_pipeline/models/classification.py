@@ -10,7 +10,7 @@ import os
 import shutil
 
 
-def _build_dynamic_labels(df_features):
+def _build_dynamic_labels(df_features, train_mask=None):
     """Construit les labels de classification avec des seuils ATR-dynamiques par paire.
 
     Probleme du seuil fixe +-0.5% :
@@ -26,13 +26,24 @@ def _build_dynamic_labels(df_features):
     - Ainsi une altcoin avec 2% d ATR moyen aura un seuil de +-1%, tandis que BTC
       avec 0.3% d ATR moyen aura un seuil de +-0.15%.
     - Objectif : obtenir ~30-40% de Stable au lieu de 64%, equilibrant les 3 classes.
+
+    IMPORTANT — anti-leakage :
+    - La mediane ATR est calculee uniquement sur les donnees d'entrainement (train_mask).
+    - Sans ca, le test connait sa propre volatilite future lors du calcul des seuils,
+      ce qui biaise les metriques de classification a la hausse.
+    - Les seuils appris sur le train sont ensuite appliques au test sans modification.
     """
     price_change = ((df_features['target_price'] - df_features['close_price'])
                     / df_features['close_price'] * 100)
 
-    # Calcul du seuil par paire : 0.5 x ATR% median de la paire.
-    # La mediane est preferee a la moyenne pour etre robuste aux spikes de volatilite.
-    atr_median_by_symbol = df_features.groupby('symbol')['atr_pct'].median() * 0.5
+    # Calcul du seuil par paire UNIQUEMENT sur les donnees d'entrainement.
+    # Si aucun masque fourni, fallback sur 80% chronologique.
+    if train_mask is not None:
+        train_df = df_features[train_mask]
+    else:
+        split_point = int(len(df_features) * 0.8)
+        train_df = df_features.iloc[:split_point]
+    atr_median_by_symbol = train_df.groupby('symbol')['atr_pct'].median() * 0.5
     thresholds = df_features['symbol'].map(atr_median_by_symbol)
 
     y = pd.Series(1, index=df_features.index, dtype=int)  # defaut = Stable
@@ -55,8 +66,8 @@ def train_classifier(df_features, features_path, model_path, train_mask=None):
     ]]
     X = df_features[features_clf]
 
-    # Labels avec seuils ATR-dynamiques (voir _build_dynamic_labels pour le raisonnement)
-    y = _build_dynamic_labels(df_features)
+    # Labels avec seuils ATR-dynamiques calcules sur le train uniquement (anti-leakage)
+    y = _build_dynamic_labels(df_features, train_mask=train_mask)
 
     # Alignement des index apres dropna eventuels
     mask = y.notna()
@@ -80,15 +91,22 @@ def train_classifier(df_features, features_path, model_path, train_mask=None):
 
     # Recherche d hyperparametres avec validation croisee temporelle.
     # class_weight='balanced' compense le desequilibre residuel entre Baisse/Hausse/Stable.
+    # Aligné avec la régression : mêmes hyperparamètres + regularisation
     param_dist_clf = {
         'n_estimators': [200, 300],
         'learning_rate': [0.05, 0.1],
         'num_leaves': [31, 63],
         'max_depth': [10, 20],
         'class_weight': ['balanced'],
+        'reg_alpha': [0.0, 0.1],  # L1 regularization
+        'reg_lambda': [0.0, 0.1],  # L2 regularization
     }
 
-    lgbm_clf = lgb.LGBMClassifier(random_state=42, n_jobs=1, verbose=-1)
+    lgbm_clf = lgb.LGBMClassifier(
+        random_state=42,
+        n_jobs=1,
+        verbose=-1,
+    )
     tscv = TimeSeriesSplit(n_splits=3)
     random_search_clf = RandomizedSearchCV(
         lgbm_clf,

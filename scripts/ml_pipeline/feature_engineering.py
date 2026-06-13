@@ -18,10 +18,11 @@ def compute_symbol_indicators(df: pd.DataFrame, symbol_code: int = 0) -> pd.Data
             close_price, high_price, low_price, volume_base
         symbol_code: code entier de la paire (issu du symbol_map sauvegardé à l'entraînement)
     """
-    # --- Lags de prix (4h) ---
-    # 4 lags capturent la dynamique récente sans ajouter de bruit au-delà de 4h.
-    for lag in range(1, 5):
-        df[f'price_lag_{lag}h'] = df['close_price'].shift(lag)
+    # --- Lag de prix (1h uniquement) ---
+    # price_lag_1h = close[T-1] : capture le dernier retour horaire (momentum immédiat).
+    # Les lags 2h-4h sont volontairement absents : redondants avec rolling_mean_24h
+    # qui couvre déjà la tendance des 24 dernières heures.
+    df['price_lag_1h'] = df['close_price'].shift(1)
 
     # Les lags de volume sont absents intentionnellement :
     # déjà représentés par volume_base courant + ATR (proxy de liquidité).
