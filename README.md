@@ -45,11 +45,11 @@ uv sync --group dev --group api --group data_pipeline --group ml_pipeline --grou
 
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(64))"
+
+- Pour obtenir la clé Fernet à mettre dans .env :
 docker compose run --rm airflow-webserver python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-- La première commande génère une valeur pour `AIRFLOW_SECRET_KEY`.
-- La deuxième commande génère une clé valide pour `AIRFLOW_FERNET_KEY`.
 
 ### Alertes Slack Airflow (optionnel)
 
