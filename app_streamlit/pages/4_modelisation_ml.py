@@ -163,17 +163,13 @@ def align_model_features(df: pd.DataFrame, feature_names: list[str]) -> pd.DataF
 
 def list_latest_artifacts():
     reg_m = sorted(ALGO_DIR.glob("crypto_regressor_lgbm_*.joblib"), key=lambda p: p.stat().st_mtime, reverse=True)
-    clf_m = sorted(ALGO_DIR.glob("crypto_classifier_lgbm_*.joblib"), key=lambda p: p.stat().st_mtime, reverse=True)
     reg_f = sorted(ALGO_DIR.glob("regressor_features_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    clf_f = sorted(ALGO_DIR.glob("classifier_features_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     reg_model = reg_m[0] if reg_m else (ALGO_DIR / "crypto_regressor_lgbm.joblib" if (ALGO_DIR / "crypto_regressor_lgbm.joblib").exists() else None)
-    clf_model = clf_m[0] if clf_m else (ALGO_DIR / "crypto_classifier_lgbm.joblib" if (ALGO_DIR / "crypto_classifier_lgbm.joblib").exists() else None)
     reg_feats = reg_f[0] if reg_f else (ALGO_DIR / "regressor_features.json" if (ALGO_DIR / "regressor_features.json").exists() else None)
-    clf_feats = clf_f[0] if clf_f else (ALGO_DIR / "classifier_features.json" if (ALGO_DIR / "classifier_features.json").exists() else None)
-    return reg_model, clf_model, reg_feats, clf_feats
+    return reg_model, reg_feats
 
 def scan_artifacts_metrics():
-    res = {"regressor": [], "classifier": []}
+    res = {"regressor": []}
     try:
         for meta in ALGO_DIR.glob("crypto_regressor_lgbm_*_metadata.json"):
             ts = datetime.fromtimestamp(meta.stat().st_mtime)
@@ -189,20 +185,6 @@ def scan_artifacts_metrics():
             except Exception:
                 data = {}
             res["regressor"].append({"path": rep, "ts": ts, "metrics": data.get("metrics") or data})
-        for meta in ALGO_DIR.glob("crypto_classifier_lgbm_*_metadata.json"):
-            ts = datetime.fromtimestamp(meta.stat().st_mtime)
-            try:
-                data = json.load(open(meta, "r"))
-            except Exception:
-                data = {}
-            res["classifier"].append({"path": meta, "ts": ts, "metrics": data.get("metrics") or data})
-        for rep in ALGO_DIR.glob("crypto_classifier_lgbm_*_report.json"):
-            ts = datetime.fromtimestamp(rep.stat().st_mtime)
-            try:
-                data = json.load(open(rep, "r"))
-            except Exception:
-                data = {}
-            res["classifier"].append({"path": rep, "ts": ts, "metrics": data.get("metrics") or data})
     except Exception:
         pass
     return res
@@ -222,23 +204,17 @@ def plot_feature_importances(names, importances, title="Importances des features
 @st.cache_resource
 def get_models_and_features():
     """Charge les modèles et listes de features les plus récents (avec cache)."""
-    reg_model_path, clf_model_path, reg_feat_path, clf_feat_path = list_latest_artifacts()
-    if not all([reg_model_path, clf_model_path, reg_feat_path, clf_feat_path]):
+    reg_model_path, reg_feat_path = list_latest_artifacts()
+    if not all([reg_model_path, reg_feat_path]):
         return None
     reg_model = joblib.load(reg_model_path)
-    clf_model = joblib.load(clf_model_path)
     reg_feats = load_features_list(reg_feat_path)
-    clf_feats = load_features_list(clf_feat_path)
     return {
         "reg_model": reg_model,
-        "clf_model": clf_model,
         "reg_feats": reg_feats,
-        "clf_feats": clf_feats,
         "paths": {
             "reg_model": reg_model_path,
-            "clf_model": clf_model_path,
             "reg_feats": reg_feat_path,
-            "clf_feats": clf_feat_path,
         },
     }
 
@@ -278,14 +254,21 @@ with tabs[0]:
         last_row = dff.iloc[[-1]]  # DataFrame d'une ligne pour prédiction
         last_close = float(dff.iloc[-1]["close_price"])  # close de la dernière bougie observée (t)
 
-        col_reg, col_class = st.columns(2)
+        col_reg, col_price = st.columns(2)
 
         with col_reg:
             st.subheader("Régression (Variation Relative)")
             st.markdown("📈 Estimer la variation en % du prix à $t+1h$ (prochaine bougie).")
+            open_current = None
+            close_current = last_close
+            predicted_next_close = None
             if api_result is not None:
                 try:
                     pct_change_pred = float(api_result["prediction"]["next_close_pct_change"])  # via API
+                    current_candle = api_result.get("current_candle") or {}
+                    open_current = current_candle.get("open")
+                    close_current = float(current_candle.get("close", last_close))
+                    predicted_next_close = float(api_result["prediction"]["next_close_predicted"])
                     st.metric("Variation prédite (t+1h)", f"{pct_change_pred:+.3f}%")
                 except Exception as e:
                     st.warning(f"Réponse API inattendue, bascule en local: {e}")
@@ -298,63 +281,25 @@ with tabs[0]:
                 else:
                     Xr = align_model_features(last_row, bundle["reg_feats"])
                     pct_change_pred = float(bundle["reg_model"].predict(Xr)[0])
+                    predicted_next_close = close_current * (1 + pct_change_pred / 100.0)
                     st.metric("Variation prédite (t+1h)", f"{pct_change_pred:+.3f}%")
 
-        with col_class:
-            st.subheader("Classification (Direction)")
-            st.markdown("⬆️↔️⬇️ Catégoriser la direction (Baisse / Stable / Hausse) pour $t+1h$.")
-            # Mapping souhaité 0=Baisse, 1=Stable, 2=Hausse
-            code_to_label = {0: "Baisse", 1: "Stable", 2: "Hausse"}
-
-            if api_result is not None:
-                try:
-                    pred_label = str(api_result["prediction"]["direction"])  # via API
-                    st.metric("Classe prédite (t+1h)", pred_label)
-                    # Probabilités si disponibles
-                    probs = api_result.get("prediction", {}).get("probabilities")
-                    if isinstance(probs, dict):
-                        st.caption("Probabilités de classe (%):")
-                        for lbl in ["Baisse", "Stable", "Hausse"]:
-                            v = probs.get(lbl)
-                            if v is not None:
-                                st.progress(min(max(int(round(v)), 0), 100), text=f"{lbl} – {v:.1f}%")
-                except Exception as e:
-                    st.warning(f"Réponse API inattendue, bascule en local: {e}")
-                    api_result = None  # force fallback
-
+        with col_price:
+            st.subheader("Prix (Bougie actuelle vs prévision)")
             if api_result is None:
-                if bundle is None:
-                    bundle = get_models_and_features()
-                if not bundle:
-                    st.warning("Artefacts manquants pour la prédiction locale.")
-                else:
-                    Xc = align_model_features(last_row, bundle["clf_feats"])
-                    clf_model = bundle["clf_model"]
-                    raw_pred = clf_model.predict(Xc)[0]
-                    try:
-                        pred_idx = int(getattr(raw_pred, 'item', lambda: raw_pred)())
-                    except Exception:
-                        pred_idx = int(raw_pred)
-                    pred_label = code_to_label.get(pred_idx, str(pred_idx))
-                    st.metric("Classe prédite (t+1h)", pred_label)
+                open_current = float(dff.iloc[-1]["open_price"])
+                close_current = float(dff.iloc[-1]["close_price"])
+                if "pct_change_pred" in locals():
+                    predicted_next_close = close_current * (1 + pct_change_pred / 100.0)
 
-                    if hasattr(clf_model, "predict_proba"):
-                        proba = clf_model.predict_proba(Xc)[0]
-                        labels = []
-                        probs = []
-                        if hasattr(clf_model, "classes_"):
-                            for i, cls in enumerate(list(clf_model.classes_)):
-                                lbl = code_to_label.get(int(cls), str(cls))
-                                labels.append(lbl)
-                                probs.append(float(proba[i]))
-                        else:
-                            labels = ["Baisse", "Stable", "Hausse"]
-                            probs = [float(proba[i]) if i < len(proba) else 0.0 for i in range(3)]
-                        st.caption("Probabilités de classe (%):")
-                        for lbl, p in zip(labels, probs):
-                            st.progress(min(max(int(round(p * 100)), 0), 100), text=f"{lbl} – {p*100:.1f}%")
+            st.metric("Open actuel (t)", f"{float(open_current):,.4f}" if open_current is not None else "n/a")
+            st.metric("Close actuel (t)", f"{float(close_current):,.4f}")
+            st.metric("Close prédit (t+1h)", f"{float(predicted_next_close):,.4f}" if predicted_next_close is not None else "n/a")
 
-            st.caption("Classes réelles: 0=Baisse, 1=Stable, 2=Hausse")
+            if predicted_next_close is not None:
+                delta_abs = float(predicted_next_close) - float(close_current)
+                direction_txt = "Hausse" if delta_abs > 0 else ("Baisse" if delta_abs < 0 else "Stable")
+                st.metric("Sens implicite", direction_txt)
 
         st.write("---")
         st.subheader("Modèle déployé (Champion) et Challenger")
@@ -366,13 +311,11 @@ with tabs[0]:
             with cdep1:
                 st.markdown("**Champion déployé**")
                 st.write(f"- Regressor: {champion.get('regressor', 'n/a')}")
-                st.write(f"- Classifier: {champion.get('classifier', 'n/a')}")
                 st.write(f"- Trained at: {champion.get('trained_at', 'n/a')}")
                 st.write(f"- Score: {champion.get('score', 'n/a')}")
             with cdep2:
                 st.markdown("**Dernier challenger**")
                 st.write(f"- Regressor: {challenger.get('regressor', 'n/a')}")
-                st.write(f"- Classifier: {challenger.get('classifier', 'n/a')}")
                 st.write(f"- Trained at: {challenger.get('trained_at', 'n/a')}")
                 st.write(f"- Score: {challenger.get('score', 'n/a')}")
         else:
@@ -393,8 +336,8 @@ with tabs[0]:
         st.markdown("### 2. Métriques de Sélection")
         
         metrics_df = pd.DataFrame({
-            "Tâche": ["Régression", "Classification"],
-            "Critères": ["MAE / NMAE", "F1 / Accuracy"]
+            "Tâche": ["Régression"],
+            "Critères": ["MAE / RMSE / R²"]
         })
         st.dataframe(metrics_df, hide_index=True)
 
@@ -541,9 +484,9 @@ with tabs[2]:
 
 
         st.subheader("Artefacts les plus récents")
-        reg_model_path, clf_model_path, reg_feat_path, clf_feat_path = list_latest_artifacts()
-        if not all([reg_model_path, clf_model_path, reg_feat_path, clf_feat_path]):
-            st.warning("Certains artefacts (modèles ou features) sont manquants dans le dossier algo_crypto.")
+        reg_model_path, reg_feat_path = list_latest_artifacts()
+        if not all([reg_model_path, reg_feat_path]):
+            st.warning("Certains artefacts regresseur (modèle ou features) sont manquants dans le dossier algo_crypto.")
         else:
             def fmt(p):
                 try:
@@ -551,27 +494,16 @@ with tabs[2]:
                     return f"{p.name} (modifié: {ts:%Y-%m-%d %H:%M:%S})"
                 except Exception:
                     return str(p)
-            colA, colB = st.columns(2)
-            with colA:
-                st.write("Régression:")
-                st.write("• Modèle:", fmt(reg_model_path))
-                st.write("• Features:", fmt(reg_feat_path))
-            with colB:
-                st.write("Classification:")
-                st.write("• Modèle:", fmt(clf_model_path))
-                st.write("• Features:", fmt(clf_feat_path))
+            st.write("Régression:")
+            st.write("• Modèle:", fmt(reg_model_path))
+            st.write("• Features:", fmt(reg_feat_path))
 
             with st.expander("Chargement rapide des modèles (sanity check)"):
                 try:
                     reg_model = joblib.load(reg_model_path)
-                    clf_model = joblib.load(clf_model_path)
                     with open(reg_feat_path, 'r') as f:
                         reg_feats = json.load(f)
-                    with open(clf_feat_path, 'r') as f:
-                        clf_feats = json.load(f)
-                    c1, c2 = st.columns(2)
-                    c1.write(f"Régression: {type(reg_model).__name__} – {len(reg_feats)} features")
-                    c2.write(f"Classification: {type(clf_model).__name__} – {len(clf_feats)} features")
+                    st.write(f"Régression: {type(reg_model).__name__} – {len(reg_feats)} features")
                 except Exception as e:
                     st.error(f"Erreur chargement modèles: {e}")
 
@@ -640,91 +572,6 @@ with tabs[3]:
             st.error(f"Analyse indisponible: {e}")
 
     st.markdown("---")
-    st.subheader("Backtest classification – stratégie Buy/Hold/Sell vs Buy&Hold")
-    md_justify(
-        """
-        Méthode de démo : on applique le classificateur sur la fenêtre choisie,
-        puis on simule deux courbes d’équité avec frais:
-        - Équité stratégie (positions −1/0/+1, frais à chaque changement: 1 trade pour entrée/sortie, 2 pour inversion directe)
-        - Équité Buy&Hold (référence)
-        """
-    )
-    symbols = list_symbols()
-    if symbols:
-        colb1, colb2, colb3 = st.columns([2,1,1])
-        with colb2:
-            sym_b = st.selectbox("Symbole (clf)", symbols, index=0, key="ml4_bt_sym")
-        with colb3:
-            fee = st.slider("Frais (bps)", 0, 50, 10, help="1 bps = 0.01% – appliqués aux changements de position") / 10000.0
-        init_cap = st.number_input("Capital initial (USDT)", min_value=100.0, max_value=1000000.0, value=1000.0, step=100.0)
-        try:
-            bundle = get_models_and_features()
-            if not bundle:
-                st.info("Artefacts manquants pour le backtest classification.")
-            else:
-                months_eval_bt = st.session_state.get("ml4_eval_months", 12)
-                years_need = max(1, math.ceil(months_eval_bt / 12))
-                df = load_candles(sym_b, years=years_need)
-                dfl = df[df["timestamp"] >= (pd.Timestamp.utcnow() - pd.DateOffset(months=months_eval_bt))]
-                dff = compute_features(dfl).dropna().reset_index(drop=True)
-                # Prédire classes
-                Xc = align_model_features(dff, bundle["clf_feats"])
-                raw_pred = bundle["clf_model"].predict(Xc)
-                # Convertir en natifs
-                preds_idx = [int(getattr(v, 'item', lambda: v)()) if hasattr(v, 'item') else int(v) for v in raw_pred]
-                # Map classes -> signaux
-                label_to_signal = {0: 'Sell', 1: 'Hold', 2: 'Buy'}
-                signals = [label_to_signal.get(v, 'Hold') for v in preds_idx]
-                # Construire positions -1/0/+1 et calculer equity
-                price = dff["close_price"].reset_index(drop=True)
-                ts = dff["timestamp"].reset_index(drop=True)
-                pos = pd.Series(signals).map({'Sell': -1, 'Hold': 0, 'Buy': 1}).astype(int)
-                pos_expo = pos.shift(1).fillna(0)
-                ret = price.pct_change().fillna(0)
-                # Frais: calculés aux changements de position (1 trade pour entrer/sortir, 2 pour flip)
-                prev = pos.shift(1).fillna(0)
-                curr = pos
-                trade_count = np.where((prev==0) & (curr!=0), 1,
-                                  np.where((prev!=0) & (curr==0), 1,
-                                      np.where((prev!=0) & (curr!=0) & (np.sign(prev)!=np.sign(curr)), 2, 0)))
-                fee_factor = (1 - fee) ** trade_count
-                growth = (1 + ret * pos_expo) * fee_factor
-                equity_model = pd.Series(growth).cumprod()
-                equity_bh = price / price.iloc[0]
-                # Conversion en USDT
-                equity_model_usd = equity_model * init_cap
-                equity_bh_usd = equity_bh * init_cap
-                # Plot
-                fig_bt = go.Figure()
-                fig_bt.add_trace(go.Scatter(x=ts, y=equity_bh_usd, name="Buy&Hold"))
-                fig_bt.add_trace(go.Scatter(x=ts, y=equity_model_usd, name="Stratégie (clf)", line=dict(dash="solid")))
-                fig_bt.update_layout(height=380, title=f"{sym_b} – Equity (USDT): stratégie (clf) vs Buy&Hold")
-                st.plotly_chart(fig_bt, use_container_width=True)
-                # Métriques
-                def _max_drawdown(equity_series: pd.Series) -> float:
-                    if len(equity_series) == 0:
-                        return 0.0
-                    rolling_max = equity_series.cummax()
-                    dd = equity_series / rolling_max - 1.0
-                    return float(dd.min())
-                model_final = float(equity_model_usd.iloc[-1])
-                bh_final = float(equity_bh_usd.iloc[-1])
-                model_ret = (model_final / float(init_cap) - 1.0) * 100.0
-                bh_ret = (bh_final / float(init_cap) - 1.0) * 100.0
-                dd_model = _max_drawdown(equity_model_usd) * 100.0
-                dd_bh = _max_drawdown(equity_bh_usd) * 100.0
-                total_trades = int(np.sum(trade_count))
-                flips = int(np.sum((prev!=0) & (curr!=0) & (np.sign(prev)!=np.sign(curr))))
-                entries_exits = total_trades - 2*flips
-                cma, cmb, cmc, cmd = st.columns(4)
-                cma.metric("Final stratégie (USDT)", f"{model_final:,.2f}")
-                cmb.metric("Rendement stratégie", f"{model_ret:.2f}%")
-                cmc.metric("Max drawdown (strat)", f"{dd_model:.2f}%")
-                cmd.metric("Trades (± flips)", f"{total_trades} (±{flips})")
-                c2a, c2b = st.columns(2)
-                c2a.metric("Final Buy&Hold (USDT)", f"{bh_final:,.2f}")
-                c2b.metric("Max drawdown (BH)", f"{dd_bh:.2f}%")
-                st.caption("Remarque: l’équité est simulée en USDT avec capital initial configurable. Les frais sont appliqués aux changements de position (1 trade entrée/sortie, 2 trades pour inversion).")
-        except Exception as e:
-            st.error(f"Backtest classification indisponible: {e}")
+    st.subheader("Backtest directionnel")
+    st.info("Le backtest classification est désactivé: la direction est désormais dérivée de la prédiction de régression (next_close_predicted vs close actuel).")
 

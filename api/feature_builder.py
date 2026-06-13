@@ -30,18 +30,13 @@ def _latest_file(dir_path: Path, pattern: str):
 
 
 def load_feature_lists():
-    """Charge les listes de features alignees avec les derniers artefacts disponibles."""
-    clf_path = _latest_file(MODELS_DIR, "classifier_features_*.json") or (MODELS_DIR / "classifier_features.json")
+    """Charge la liste de features du regresseur la plus recente."""
     reg_path = _latest_file(MODELS_DIR, "regressor_features_*.json") or (MODELS_DIR / "regressor_features.json")
-    if not clf_path.exists():
-        raise FileNotFoundError(f"Fichier non trouve: {clf_path}")
     if not reg_path.exists():
         raise FileNotFoundError(f"Fichier non trouve: {reg_path}")
-    with open(clf_path, "r") as f:
-        clf_feats = json.load(f)
     with open(reg_path, "r") as f:
         reg_feats = json.load(f)
-    return clf_feats, reg_feats
+    return reg_feats
 
 
 def load_symbol_map() -> dict:
@@ -103,8 +98,8 @@ def latest_feature_row(symbol: str):
     Utilise compute_symbol_indicators (partagee avec l entrainement) pour garantir
     la coherence des features entre training et inference.
     """
-    clf_feats, reg_feats = load_feature_lists()
-    needed = set(clf_feats) | set(reg_feats)
+    reg_feats = load_feature_lists()
+    needed = set(reg_feats)
 
     symbol_map = load_symbol_map()
     symbol_code = symbol_map.get(symbol, 0)
@@ -131,14 +126,13 @@ def latest_feature_row(symbol: str):
             raise KeyError(f"Missing feature '{col}'; available: {list(last.index)}")
         feat_dict[col] = float(last[col])
 
-    clf_vector = [feat_dict[f] for f in clf_feats]
     reg_vector = [feat_dict[f] for f in reg_feats]
 
     return {
-        "classifier_features": clf_feats,
         "regressor_features": reg_feats,
-        "classifier_vector": clf_vector,
         "regressor_vector": reg_vector,
+        "open_current": float(last["open_price"]),
+        "close_current": float(last["close_price"]),
         "asof_timestamp": last_ts.isoformat(),
         "timestamp": next_ts.isoformat(),
     }
