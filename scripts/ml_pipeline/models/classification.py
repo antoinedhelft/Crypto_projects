@@ -37,12 +37,15 @@ def _build_dynamic_labels(df_features, train_mask=None):
                     / df_features['close_price'] * 100)
 
     # Calcul du seuil par paire UNIQUEMENT sur les donnees d'entrainement.
-    # Si aucun masque fourni, fallback sur 80% chronologique.
+    # Si aucun masque fourni, fallback sur TimeSeriesSplit.
     if train_mask is not None:
         train_df = df_features[train_mask]
     else:
-        split_point = int(len(df_features) * 0.8)
-        train_df = df_features.iloc[:split_point]
+        # Fallback: TimeSeriesSplit pour garantir la séparation temporelle
+        tscv = TimeSeriesSplit(n_splits=5)
+        for train_idx, test_idx in tscv.split(df_features):
+            pass  # Garder les indices du dernier fold
+        train_df = df_features.iloc[train_idx]
     atr_median_by_symbol = train_df.groupby('symbol')['atr_pct'].median() * 0.5
     thresholds = df_features['symbol'].map(atr_median_by_symbol)
 
@@ -80,14 +83,18 @@ def train_classifier(df_features, features_path, model_path, train_mask=None):
     with open(str(features_path), 'w') as f:
         json.dump(features_clf, f)
 
-    # Separation temporelle pour eviter le leakage : 80% train / 20% test en ordre chronologique
+    # Separation temporelle pour eviter le leakage : TimeSeriesSplit si masque externe fourni, sinon fallback
     if train_mask is not None:
         X_train, y_train = X[train_mask], y[train_mask]
         X_test, y_test = X[~train_mask], y[~train_mask]
     else:
-        split_point = int(len(X) * 0.8)
-        X_train, y_train = X.iloc[:split_point], y.iloc[:split_point]
-        X_test, y_test = X.iloc[split_point:], y.iloc[split_point:]
+        # Fallback: TimeSeriesSplit pour garantir la séparation temporelle
+        tscv = TimeSeriesSplit(n_splits=5)
+        for train_idx, test_idx in tscv.split(X):
+            pass  # Garder les indices du dernier fold
+        X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+        X_test, y_test = X.iloc[test_idx], y.iloc[test_idx]
+        print(f"[DEBUG] Fallback TimeSeriesSplit: {len(train_idx)} train / {len(test_idx)} test")
 
     # Recherche d hyperparametres avec validation croisee temporelle.
     # class_weight='balanced' compense le desequilibre residuel entre Baisse/Hausse/Stable.

@@ -1,9 +1,11 @@
 import os
 import sys
 import pandas as pd
+import numpy as np
 from pathlib import Path
 import json
 import datetime
+from sklearn.model_selection import TimeSeriesSplit
 
 # Ajouter le path racine
 sys.path.append(str(Path(__file__).parent.parent))
@@ -122,13 +124,28 @@ def main():
         print(f"[DEBUG] Colonnes: {list(df_features.columns)}")
         sys.stdout.flush()
         
-        # Construire un masque d'entraînement chrono par symbole (~80% par symbole)
-        df_tmp = df_features.copy()
-        df_tmp['row_idx'] = df_tmp.groupby('symbol').cumcount()
-        df_tmp['grp_size'] = df_tmp.groupby('symbol')['symbol'].transform('size')
-        df_tmp['train_cut'] = (df_tmp['grp_size'] * 0.8).astype(int)
-        train_mask = df_tmp['row_idx'] < df_tmp['train_cut']
-        df_tmp = df_tmp.drop(columns=['row_idx', 'grp_size', 'train_cut'])
+        # Construire un masque d'entraînement chrono par symbole avec TimeSeriesSplit (sans leakage temporel)
+        # TimeSeriesSplit(n_splits=5) garantit que chaque point test ne voit jamais son futur
+        train_mask_list = []
+        for symbol in sorted(df_features['symbol'].unique()):
+            symbol_df = df_features[df_features['symbol'] == symbol]
+            n_samples = len(symbol_df)
+            
+            # TimeSeriesSplit: créer 5 folds temporels
+            # Le dernier fold a le split temporel le plus loin dans le temps
+            tscv = TimeSeriesSplit(n_splits=5)
+            for train_idx, test_idx in tscv.split(symbol_df):
+                pass  # Garder les indices du dernier fold
+            
+            # Créer le masque booléen pour ce symbole
+            symbol_train_mask = np.zeros(n_samples, dtype=bool)
+            symbol_train_mask[train_idx] = True
+            train_mask_list.append(symbol_train_mask)
+        
+        # Concaténer les masques de tous les symboles (ordre préservé: sorted unique)
+        train_mask = pd.Series(np.concatenate(train_mask_list), index=df_features.index)
+        print(f"[DEBUG] Masque temporel TimeSeriesSplit créé: {train_mask.sum()} train / {(~train_mask).sum()} test")
+        sys.stdout.flush()
 
     # Aucun clipping de la cible. On conserve toute l'amplitude des prix
     # pour éviter de plafonner artificiellement des actifs comme BTCUSDT.

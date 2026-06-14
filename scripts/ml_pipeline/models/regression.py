@@ -52,9 +52,13 @@ def train_regressor(df_features, features_path, model_path, train_mask=None):
         X_train, y_train = X[train_mask], y[train_mask]
         X_test, y_test = X[~train_mask], y[~train_mask]
     else:
-        split_point = int(len(X) * 0.8)
-        X_train, y_train = X.iloc[:split_point], y.iloc[:split_point]
-        X_test, y_test = X.iloc[split_point:], y.iloc[split_point:]
+        # Fallback: TimeSeriesSplit pour garantir la séparation temporelle
+        tscv = TimeSeriesSplit(n_splits=5)
+        for train_idx, test_idx in tscv.split(X):
+            pass  # Garder les indices du dernier fold
+        X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+        X_test, y_test = X.iloc[test_idx], y.iloc[test_idx]
+        print(f"[DEBUG] Fallback TimeSeriesSplit: {len(train_idx)} train / {len(test_idx)} test")
 
     # Recherche des hyperparamètres avec RandomizedSearchCV
     # Aligné avec la classification : même nombre d'iterations (n_iter=10)
