@@ -19,11 +19,3 @@ def health_check():
 @app.get("/")
 def root():
     return {"message": "Crypto ML API - use /docs for documentation"}
-
-# Prometheus metrics
-try:
-    from prometheus_fastapi_instrumentator import Instrumentator
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
-except Exception as e:
-    import logging
-    logging.getLogger(__name__).warning("Prometheus instrumentation not enabled: %s", e)
